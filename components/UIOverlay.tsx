@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppState, SavedModel } from '../types';
-import { Box, Code2, Play, Pause, Info, Loader2, Sparkles, Layers, Upload } from 'lucide-react';
+import { Box, Code2, Play, Pause, Info, Loader2, Sparkles, Layers, Upload, Save, Cpu } from 'lucide-react';
 
 interface UIOverlayProps {
   voxelCount: number;
@@ -23,6 +23,10 @@ interface UIOverlayProps {
   onImportModel: () => void;
   onToggleRotation: () => void;
   onToggleInfo: () => void;
+  onSavePreset: () => void;
+  selectedModel: string;
+  onSelectModel: (model: string) => void;
+  customPresetNames: string[];
 }
 
 const LOADING_MESSAGES = [
@@ -45,12 +49,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onShowJson,
   onImportModel,
   onToggleRotation,
-  onToggleInfo
+  onToggleInfo,
+  onSavePreset,
+  selectedModel,
+  onSelectModel,
+  customPresetNames
 }) => {
   const isStable = appState === AppState.STABLE;
   
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [showPresets, setShowPresets] = useState(false);
+  const [showModels, setShowModels] = useState(false);
 
   useEffect(() => {
     if (isGenerating) {
@@ -111,6 +120,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                 icon={<Upload size={18} strokeWidth={2.5} />}
                 label="Import"
             />
+            <IconButton
+                onClick={onSavePreset}
+                icon={<Save size={18} strokeWidth={2.5} />}
+                label="Save Preset"
+            />
         </div>
       </div>
 
@@ -140,6 +154,33 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                      
                      <div className="relative">
                          <button 
+                            onClick={() => setShowModels(!showModels)}
+                            className="group relative flex items-center gap-2 bg-white/80 hover:bg-white text-slate-700 px-6 py-4 rounded-full shadow-lg shadow-black/5 transition-all active:scale-95 border border-white/40"
+                         >
+                            <Cpu size={20} className="text-slate-500 group-hover:text-slate-700 transition-colors" />
+                            <span className="font-bold tracking-wide text-lg capitalize">{selectedModel === 'voxelAI model' ? 'VoxelAI' : selectedModel}</span>
+                         </button>
+
+                         {showModels && (
+                             <div className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-xl border border-white/40 p-2 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[200px] animate-in fade-in slide-in-from-bottom-2">
+                                 {['gemini', 'brickgpt', 'voxelAI model', '自定义'].map(model => (
+                                     <button
+                                        key={model}
+                                        onClick={() => {
+                                            setShowModels(false);
+                                            onSelectModel(model);
+                                        }}
+                                        className={`text-left px-4 py-3 rounded-xl hover:bg-slate-100 font-medium transition-colors ${selectedModel === model ? 'text-[#a1a43a] bg-[#f4f5d3]' : 'text-slate-700'}`}
+                                     >
+                                         {model === 'voxelAI model' ? 'voxelAI model (GRPO)' : model}
+                                     </button>
+                                 ))}
+                             </div>
+                         )}
+                     </div>
+
+                     <div className="relative">
+                         <button 
                             onClick={() => setShowPresets(!showPresets)}
                             className="group relative flex items-center gap-2 bg-white/80 hover:bg-white text-slate-700 px-6 py-4 rounded-full shadow-lg shadow-black/5 transition-all active:scale-95 border border-white/40"
                          >
@@ -148,17 +189,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                          </button>
 
                          {showPresets && (
-                             <div className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-xl border border-white/40 p-2 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[160px] animate-in fade-in slide-in-from-bottom-2">
-                                 {['ModernSofa', 'ModernLamp', 'Table'].map(preset => (
+                             <div className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-xl border border-white/40 p-2 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[160px] max-h-[300px] overflow-y-auto animate-in fade-in slide-in-from-bottom-2">
+                                 {['ModernSofa', 'ModernLamp', 'Table', ...customPresetNames].map(preset => (
                                      <button
                                         key={preset}
                                         onClick={() => {
                                             setShowPresets(false);
                                             onLoadPreset?.(preset);
                                         }}
-                                        className="text-left px-4 py-3 rounded-xl hover:bg-slate-100 text-slate-700 font-medium transition-colors"
+                                        className="text-left px-4 py-3 rounded-xl hover:bg-slate-100 text-slate-700 font-medium transition-colors whitespace-nowrap"
                                      >
-                                         {preset === 'ModernSofa' ? 'Modern Sofa' : preset === 'ModernLamp' ? 'Modern Lamp' : 'Table'}
+                                         {preset === 'ModernSofa' ? 'Modern Sofa' : preset === 'ModernLamp' ? 'Modern Lamp' : preset}
                                      </button>
                                  ))}
                              </div>

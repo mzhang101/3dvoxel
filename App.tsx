@@ -12,7 +12,7 @@ import { PromptModal } from './components/PromptModal';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Generators } from './utils/voxelGenerators';
 import { parseImportedModel } from './utils/modelImport';
-import { AppState, VoxelData } from './types';
+import { AppState, VoxelData, SavedModel } from './types';
 import { GoogleGenAI, Type } from "@google/genai";
 
 const App: React.FC = () => {
@@ -34,6 +34,16 @@ const App: React.FC = () => {
   const [savedApiKey, setSavedApiKey] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
     return window.localStorage.getItem('gemini_api_key') ?? '';
+  });
+
+  const [selectedModel, setSelectedModel] = useState<string>('gemini');
+  const [customPresets, setCustomPresets] = useState<SavedModel[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      return JSON.parse(window.localStorage.getItem('custom_voxel_presets') || '[]');
+    } catch {
+      return [];
+    }
   });
 
   useEffect(() => {
@@ -99,10 +109,40 @@ const App: React.FC = () => {
                   data = Generators.Table();
                   break;
               default:
-                  data = Generators.ModernSofa();
+                  const custom = customPresets.find(p => p.name === presetName);
+                  data = custom ? custom.data : Generators.ModernSofa();
           }
           engineRef.current.generateEffect(data);
       }
+  };
+
+  const handleSavePreset = () => {
+    if (engineRef.current) {
+      try {
+        const dataStr = engineRef.current.getJsonData();
+        const parsed = JSON.parse(dataStr);
+        const voxelData: VoxelData[] = parsed.map((p: any) => ({
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          z: Math.round(p.z),
+          color: parseInt(p.c.replace('#', ''), 16)
+        }));
+        
+        const presetName = prompt("Enter a name for this preset:", `Preset ${customPresets.length + 1}`);
+        if (!presetName) return;
+        
+        const newPreset: SavedModel = { name: presetName, data: voxelData };
+        const updatedPresets = [...customPresets, newPreset];
+        setCustomPresets(updatedPresets);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('custom_voxel_presets', JSON.stringify(updatedPresets));
+        }
+        alert("Saved to presets successfully!");
+      } catch (err) {
+        console.error("Failed to save preset:", err);
+        alert("Failed to save preset.");
+      }
+    }
   };
 
   const handleOpenImportPicker = () => {
@@ -236,6 +276,10 @@ const App: React.FC = () => {
         onImportModel={handleOpenImportPicker}
         onToggleRotation={handleToggleRotation}
         onToggleInfo={() => setShowWelcome(!showWelcome)}
+        onSavePreset={handleSavePreset}
+        selectedModel={selectedModel}
+        onSelectModel={setSelectedModel}
+        customPresetNames={customPresets.map(p => p.name)}
       />
 
       <input
