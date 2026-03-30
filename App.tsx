@@ -144,7 +144,7 @@ const App: React.FC = () => {
 
     try {
         const ai = new GoogleGenAI({ apiKey: runtimeKey });
-      const model = 'gemini-2.5-flash';
+      const model = 'gemini-3-pro-preview';
         
         let systemContext = `
             CONTEXT: You are creating a brand new voxel art scene from scratch.
