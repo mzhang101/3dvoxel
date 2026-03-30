@@ -140,6 +140,8 @@ const App: React.FC = () => {
       window.localStorage.setItem('gemini_api_key', runtimeKey);
     }
 
+    // Close the modal immediately and show progress on the main scene.
+    setIsPromptModalOpen(false);
     setIsGenerating(true);
 
     try {
@@ -204,15 +206,13 @@ const App: React.FC = () => {
             if (engineRef.current) {
                 engineRef.current.generateEffect(voxelData);
             }
-
-            setIsPromptModalOpen(false);
           } else {
             throw new Error('Model returned an empty response.');
         }
     } catch (err) {
         console.error("Generation failed", err);
           const message = err instanceof Error ? err.message : 'Generation failed.';
-          throw new Error(`Generation failed: ${message}`);
+          alert(`Generation failed: ${message}`);
     } finally {
         setIsGenerating(false);
     }
