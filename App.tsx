@@ -141,12 +141,10 @@ const App: React.FC = () => {
     }
 
     setIsGenerating(true);
-    // Close modal immediately so we can show the main loading indicator
-    setIsPromptModalOpen(false);
 
     try {
         const ai = new GoogleGenAI({ apiKey: runtimeKey });
-        const model = 'gemini-3-pro-preview';
+      const model = 'gemini-2.5-flash';
         
         let systemContext = `
             CONTEXT: You are creating a brand new voxel art scene from scratch.
@@ -206,10 +204,15 @@ const App: React.FC = () => {
             if (engineRef.current) {
                 engineRef.current.generateEffect(voxelData);
             }
+
+            setIsPromptModalOpen(false);
+          } else {
+            throw new Error('Model returned an empty response.');
         }
     } catch (err) {
         console.error("Generation failed", err);
-        alert("Oops! Something went wrong generating the model.");
+          const message = err instanceof Error ? err.message : 'Generation failed.';
+          throw new Error(`Generation failed: ${message}`);
     } finally {
         setIsGenerating(false);
     }
