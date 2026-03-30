@@ -41,7 +41,8 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSub
       onClose();
     } catch (err) {
       console.error(err);
-      setError('Generation failed. Please try again.');
+      const message = err instanceof Error ? err.message : 'Generation failed. Please try again.';
+      setError(message);
     } finally {
       setIsLoading(false);
     }

@@ -127,7 +127,7 @@ const App: React.FC = () => {
 
   const handlePromptSubmit = async (prompt: string) => {
     if (!process.env.API_KEY) {
-        throw new Error("API Key not found");
+      throw new Error('Missing API key. Configure GEMINI_API_KEY for this deployment.');
     }
 
     setIsGenerating(true);
