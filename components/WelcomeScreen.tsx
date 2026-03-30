@@ -21,7 +21,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ visible }) => {
       <div className="flex items-center gap-3 bg-white/80 backdrop-blur-xl px-6 py-3 rounded-full border border-white/40 shadow-sm">
         <Sparkles size={16} className="text-[#a1a43a]" />
         <span className="text-sm font-medium text-slate-700">
-          Powered by Gemini 3. Generate amazing voxel models with AI.
+          Welcome to experience the magic of Voxels.
         </span>
       </div>
     </div>
