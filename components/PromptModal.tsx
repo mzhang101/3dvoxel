@@ -10,21 +10,24 @@ import { Sparkles, X, Loader2 } from 'lucide-react';
 interface PromptModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (prompt: string) => Promise<void>;
+  savedApiKey?: string;
+  onSubmit: (prompt: string, apiKey?: string) => Promise<void>;
 }
 
-export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSubmit }) => {
+export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, savedApiKey = '', onSubmit }) => {
   const [prompt, setPrompt] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setPrompt('');
+      setApiKey(savedApiKey);
       setError('');
       setIsLoading(false);
     }
-  }, [isOpen]);
+  }, [isOpen, savedApiKey]);
 
   if (!isOpen) return null;
 
@@ -36,7 +39,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSub
     setError('');
     
     try {
-      await onSubmit(prompt);
+      await onSubmit(prompt, apiKey);
       setPrompt('');
       onClose();
     } catch (err) {
@@ -69,6 +72,15 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, onSub
         {/* Body */}
         <div className="p-6">
           <form onSubmit={handleSubmit}>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Paste Gemini API key (stored locally in this browser)"
+              disabled={isLoading}
+              className="w-full bg-slate-50/50 border border-slate-200 rounded-2xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#d4d76a]/30 focus:border-[#d4d76a] transition-all placeholder:text-slate-400 mb-4"
+            />
+
             <textarea 
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

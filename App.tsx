@@ -31,6 +31,10 @@ const App: React.FC = () => {
   
   const [jsonData, setJsonData] = useState('');
   const [isAutoRotate, setIsAutoRotate] = useState(true);
+  const [savedApiKey, setSavedApiKey] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('gemini_api_key') ?? '';
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -125,9 +129,15 @@ const App: React.FC = () => {
     }
   };
 
-  const handlePromptSubmit = async (prompt: string) => {
-    if (!process.env.API_KEY) {
-      throw new Error('Missing API key. Configure GEMINI_API_KEY for this deployment.');
+  const handlePromptSubmit = async (prompt: string, apiKeyInput?: string) => {
+    const runtimeKey = (apiKeyInput ?? '').trim() || savedApiKey;
+    if (!runtimeKey) {
+      throw new Error('Missing API key. Paste your Gemini API key in the modal.');
+    }
+
+    if (runtimeKey !== savedApiKey) {
+      setSavedApiKey(runtimeKey);
+      window.localStorage.setItem('gemini_api_key', runtimeKey);
     }
 
     setIsGenerating(true);
@@ -135,7 +145,7 @@ const App: React.FC = () => {
     setIsPromptModalOpen(false);
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: runtimeKey });
         const model = 'gemini-3-pro-preview';
         
         let systemContext = `
@@ -246,6 +256,7 @@ const App: React.FC = () => {
       <PromptModal
         isOpen={isPromptModalOpen}
         onClose={() => setIsPromptModalOpen(false)}
+        savedApiKey={savedApiKey}
         onSubmit={handlePromptSubmit}
       />
     </div>

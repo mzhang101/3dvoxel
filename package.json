@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "build:docs": "vite build --base=/3dvoxel/docs/ --outDir docs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^19.2.0",
