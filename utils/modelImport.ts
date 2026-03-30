@@ -174,6 +174,10 @@ export function parseImportedModel(rawText: string): VoxelData[] {
         return parseBrickLines(payload.bricks);
       }
 
+      if (typeof payload.model_3d_bricks === 'string') {
+        return parseBrickLines(payload.model_3d_bricks);
+      }
+
       if (Array.isArray(payload.stability_scores)) {
         return parseNumericGrid(payload.stability_scores);
       }
