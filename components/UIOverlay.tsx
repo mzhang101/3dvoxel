@@ -6,7 +6,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppState, SavedModel } from '../types';
-import { Box, Code2, Play, Pause, Info, Loader2, Sparkles, Layers, Upload, Save, Cpu } from 'lucide-react';
+import { SOURCE_OPTIONS, getSelectionDisplay } from '../services/generators/catalog';
+import { Box, Code2, Play, Pause, Info, Loader2, Sparkles, Layers, Upload, Save, Cpu, ArrowLeftRight } from 'lucide-react';
 
 interface UIOverlayProps {
   voxelCount: number;
@@ -27,6 +28,7 @@ interface UIOverlayProps {
   selectedModel: string;
   onSelectModel: (model: string) => void;
   customPresetNames: string[];
+  onToggleComparison?: () => void;
 }
 
 const LOADING_MESSAGES = [
@@ -53,13 +55,16 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onSavePreset,
   selectedModel,
   onSelectModel,
-  customPresetNames
+  customPresetNames,
+  onToggleComparison
 }) => {
   const isStable = appState === AppState.STABLE;
+    const selectedModelDisplay = getSelectionDisplay(selectedModel);
   
   const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const [showPresets, setShowPresets] = useState(false);
   const [showModels, setShowModels] = useState(false);
+    const [isGeminiExpanded, setIsGeminiExpanded] = useState(false);
 
   useEffect(() => {
     if (isGenerating) {
@@ -71,6 +76,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         setLoadingMsgIndex(0);
     }
   }, [isGenerating]);
+
+    useEffect(() => {
+        if (!showModels) {
+            setIsGeminiExpanded(false);
+            return;
+        }
+
+        if (selectedModelDisplay.primary === 'Gemini') {
+            setIsGeminiExpanded(true);
+        }
+    }, [selectedModelDisplay.primary, showModels]);
 
   return (
     <div className="absolute inset-0 pointer-events-none select-none font-sans">
@@ -125,6 +141,13 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                 icon={<Save size={18} strokeWidth={2.5} />}
                 label="Save Preset"
             />
+            {onToggleComparison && (
+            <IconButton
+                onClick={onToggleComparison}
+                icon={<ArrowLeftRight size={18} strokeWidth={2.5} />}
+                label="Compare"
+            />
+            )}
         </div>
       </div>
 
@@ -158,23 +181,71 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                             className="group relative flex items-center gap-2 bg-white/80 hover:bg-white text-slate-700 px-6 py-4 rounded-full shadow-lg shadow-black/5 transition-all active:scale-95 border border-white/40"
                          >
                             <Cpu size={20} className="text-slate-500 group-hover:text-slate-700 transition-colors" />
-                            <span className="font-bold tracking-wide text-lg capitalize">{selectedModel === 'voxelAI model' ? 'VoxelAI' : selectedModel}</span>
+                            <div className="flex flex-col items-start leading-none">
+                                <span className="font-bold tracking-wide text-lg capitalize">{selectedModelDisplay.primary}</span>
+                                {selectedModelDisplay.secondary && (
+                                    <span className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{selectedModelDisplay.secondary}</span>
+                                )}
+                            </div>
                          </button>
 
                          {showModels && (
-                             <div className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-xl border border-white/40 p-2 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[200px] animate-in fade-in slide-in-from-bottom-2">
-                                 {['gemini', 'brickgpt', 'voxelAI model', '自定义'].map(model => (
-                                     <button
-                                        key={model}
-                                        onClick={() => {
-                                            setShowModels(false);
-                                            onSelectModel(model);
-                                        }}
-                                        className={`text-left px-4 py-3 rounded-xl hover:bg-slate-100 font-medium transition-colors ${selectedModel === model ? 'text-[#a1a43a] bg-[#f4f5d3]' : 'text-slate-700'}`}
-                                     >
-                                         {model === 'voxelAI model' ? 'voxelAI model (GRPO)' : model}
-                                     </button>
-                                 ))}
+                             <div className="absolute bottom-full mb-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-xl border border-white/40 p-2 rounded-2xl shadow-xl flex flex-col gap-1 min-w-[240px] animate-in fade-in slide-in-from-bottom-2">
+                                 {SOURCE_OPTIONS.map((option) => {
+                                     const isGeminiGroup = option.key === 'gemini';
+                                     const isActive = isGeminiGroup ? selectedModelDisplay.primary === 'Gemini' : selectedModel === option.key;
+
+                                     return (
+                                         <div key={option.key} className="flex flex-col gap-1">
+                                             <button
+                                                onClick={() => {
+                                                    if (!option.enabled) return;
+                                                    if (option.children) {
+                                                        setIsGeminiExpanded((prev) => !prev);
+                                                        return;
+                                                    }
+                                                    setShowModels(false);
+                                                    onSelectModel(option.key);
+                                                }}
+                                                disabled={!option.enabled}
+                                                className={`text-left px-4 py-3 rounded-xl font-medium transition-colors flex items-center justify-between ${isActive ? 'text-[#a1a43a] bg-[#f4f5d3]' : option.enabled ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-300 cursor-not-allowed'}`}
+                                             >
+                                                 <span>{option.label}</span>
+                                                 {option.children ? (
+                                                    <span className={`text-xs transition-transform ${isGeminiExpanded ? 'rotate-90' : ''}`}>›</span>
+                                                 ) : !option.enabled ? (
+                                                    <span className="text-[10px] font-black uppercase tracking-wide">Soon</span>
+                                                 ) : null}
+                                             </button>
+
+                                             {option.children && isGeminiExpanded && (
+                                                <div className="ml-3 rounded-xl border border-slate-100 bg-slate-50/80 p-1.5">
+                                                    {option.children.map((child) => {
+                                                        const childActive = selectedModel === child.key;
+
+                                                        return (
+                                                            <button
+                                                                key={child.key}
+                                                                onClick={() => {
+                                                                    if (!child.enabled) return;
+                                                                    setShowModels(false);
+                                                                    onSelectModel(child.key);
+                                                                }}
+                                                                disabled={!child.enabled}
+                                                                className={`mt-1 first:mt-0 w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-all ${childActive ? 'bg-white text-[#8e9234] shadow-sm ring-1 ring-[#d4d76a]/40' : child.enabled ? 'text-slate-600 hover:bg-white hover:text-slate-800' : 'text-slate-300 cursor-not-allowed'}`}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span>{child.label}</span>
+                                                                    {!child.enabled && <span className="text-[10px] font-black uppercase tracking-wide">Soon</span>}
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                             )}
+                                         </div>
+                                     );
+                                 })}
                              </div>
                          )}
                      </div>

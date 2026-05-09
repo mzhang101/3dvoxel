@@ -49,3 +49,53 @@ export interface SavedModel {
   data: VoxelData[];
   baseModel?: string;
 }
+
+// --- Evaluation & Comparison Types ---
+
+export interface BoundingBox {
+  min: { x: number; y: number; z: number };
+  max: { x: number; y: number; z: number };
+  dimensions: { width: number; height: number; depth: number };
+}
+
+export interface ConnectivityResult {
+  isFullyConnected: boolean;
+  componentCount: number;
+  largestComponentSize: number;
+}
+
+export interface ColorDiversityResult {
+  uniqueColorCount: number;
+  hslVariance: number;
+  dominantColor: string;
+}
+
+export interface EvaluationScores {
+  voxelCount: number;
+  boundingBox: BoundingBox;
+  connectivity: ConnectivityResult;
+  symmetryScore: number;
+  colorDiversity: ColorDiversityResult;
+  centeringError: { xOffset: number; zOffset: number; distance: number };
+  floorCompliance: boolean;
+  surfaceRatio: number;
+}
+
+export interface LLMJudgeScores {
+  promptAdherence: number;
+  structuralQuality: number;
+  aestheticScore: number;
+  creativity: number;
+  commentary: string;
+}
+
+export interface GenerationRecord {
+  id: string;
+  prompt: string;
+  model: string;
+  timestamp: number;
+  generationTimeMs: number;
+  voxelData: VoxelData[];
+  evaluation: EvaluationScores;
+  llmJudge?: LLMJudgeScores;
+}

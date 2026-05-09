@@ -10,9 +10,14 @@ import { UIOverlay } from './components/UIOverlay';
 import { JsonModal } from './components/JsonModal';
 import { PromptModal } from './components/PromptModal';
 import { WelcomeScreen } from './components/WelcomeScreen';
+import { ComparisonView } from './components/ComparisonView';
 import { Generators } from './utils/voxelGenerators';
 import { parseImportedModel } from './utils/modelImport';
-import { AppState, VoxelData, SavedModel } from './types';
+import { getGenerator } from './services/generators';
+import { GEMINI_MODEL_OPTIONS } from './services/generators/catalog';
+import { evaluateAll } from './utils/voxelEvaluator';
+import { appendRecord } from './components/EvalHistory';
+import { AppState, VoxelData, SavedModel, GenerationRecord } from './types';
 import { GoogleGenAI, Type } from "@google/genai";
 
 const App: React.FC = () => {
@@ -36,7 +41,8 @@ const App: React.FC = () => {
     return window.localStorage.getItem('gemini_api_key') ?? '';
   });
 
-  const [selectedModel, setSelectedModel] = useState<string>('gemini');
+  const [selectedModel, setSelectedModel] = useState<string>(GEMINI_MODEL_OPTIONS[0].key);
+  const [comparisonMode, setComparisonMode] = useState(false);
   const [customPresets, setCustomPresets] = useState<SavedModel[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -184,71 +190,29 @@ const App: React.FC = () => {
     setIsPromptModalOpen(false);
     setIsGenerating(true);
 
+    const start = performance.now();
+
     try {
-        const ai = new GoogleGenAI({ apiKey: runtimeKey });
-      const model = 'gemini-3-pro-preview';
-        
-        let systemContext = `
-            CONTEXT: You are creating a brand new voxel art scene from scratch.
-            Be creative with colors.
-        `;
+        const gen = getGenerator(selectedModel);
+        const voxelData = await gen.generate(prompt, runtimeKey);
+        const elapsed = Math.round(performance.now() - start);
 
-        const response = await ai.models.generateContent({
-            model,
-            contents: `
-                    ${systemContext}
-                    
-                    Task: Generate a 3D voxel art model of: "${prompt}".
-                    
-                    Strict Rules:
-                    1. Use approximately 150 to 600 voxels.
-                    2. The model must be centered at x=0, z=0.
-                    3. The bottom of the model must be at y=0 or slightly higher.
-                    4. Ensure the structure is physically plausible (connected).
-                    5. Coordinates should be integers.
-                    
-                    Return ONLY a JSON array of objects.`,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            x: { type: Type.INTEGER },
-                            y: { type: Type.INTEGER },
-                            z: { type: Type.INTEGER },
-                            color: { type: Type.STRING, description: "Hex color code e.g. #FF5500" }
-                        },
-                        required: ["x", "y", "z", "color"]
-                    }
-                }
-            }
-        });
-
-        if (response.text) {
-            const rawData = JSON.parse(response.text);
-            
-            // Validate and transform to VoxelData
-            const voxelData: VoxelData[] = rawData.map((v: any) => {
-                let colorStr = v.color;
-                if (colorStr.startsWith('#')) colorStr = colorStr.substring(1);
-                const colorInt = parseInt(colorStr, 16);
-                
-                return {
-                    x: v.x,
-                    y: v.y,
-                    z: v.z,
-                    color: isNaN(colorInt) ? 0xCCCCCC : colorInt
-                };
-            });
-
-            if (engineRef.current) {
-                engineRef.current.generateEffect(voxelData);
-            }
-          } else {
-            throw new Error('Model returned an empty response.');
+        if (engineRef.current) {
+            engineRef.current.generateEffect(voxelData);
         }
+
+        // Evaluate and persist
+        const evaluation = evaluateAll(voxelData);
+        const record: GenerationRecord = {
+          id: crypto.randomUUID(),
+          prompt,
+          model: selectedModel,
+          timestamp: Date.now(),
+          generationTimeMs: elapsed,
+          voxelData,
+          evaluation,
+        };
+        appendRecord(record);
     } catch (err) {
         console.error("Generation failed", err);
           const message = err instanceof Error ? err.message : 'Generation failed.';
@@ -257,6 +221,18 @@ const App: React.FC = () => {
         setIsGenerating(false);
     }
   };
+
+  // ---- Comparison mode ----
+  if (comparisonMode) {
+    return (
+      <ComparisonView
+        savedApiKey={savedApiKey}
+        leftModel={selectedModel}
+        rightModel="mock"
+        onExit={() => setComparisonMode(false)}
+      />
+    );
+  }
 
   return (
     <div className="relative w-full h-screen bg-[#f0f2f5] overflow-hidden">
@@ -280,6 +256,7 @@ const App: React.FC = () => {
         selectedModel={selectedModel}
         onSelectModel={setSelectedModel}
         customPresetNames={customPresets.map(p => p.name)}
+        onToggleComparison={() => setComparisonMode(true)}
       />
 
       <input

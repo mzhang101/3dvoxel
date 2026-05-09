@@ -17,6 +17,8 @@ export class VoxelEngine {
   private controls: OrbitControls;
   private instanceMesh: THREE.InstancedMesh | null = null;
   private dummy = new THREE.Object3D();
+  private initialCameraPosition = new THREE.Vector3(30, 30, 60);
+  private initialCameraTarget = new THREE.Vector3(0, 5, 0);
   
   private voxels: SimulationVoxel[] = [];
   private rebuildTargets: RebuildTarget[] = [];
@@ -41,12 +43,15 @@ export class VoxelEngine {
     this.scene.background = new THREE.Color(CONFIG.BG_COLOR);
     this.scene.fog = new THREE.Fog(CONFIG.BG_COLOR, 60, 140); // Reduced haze
 
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.001, 1000);
+    const w = container.clientWidth || window.innerWidth;
+    const h = container.clientHeight || window.innerHeight;
+
+    this.camera = new THREE.PerspectiveCamera(45, w / h, 0.001, 1000);
     // Slightly zoomed out start position
-    this.camera.position.set(30, 30, 60);
+    this.camera.position.copy(this.initialCameraPosition);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(w, h);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
@@ -55,7 +60,7 @@ export class VoxelEngine {
     this.controls.enableDamping = true;
     this.controls.autoRotate = true;
     this.controls.autoRotateSpeed = 0.5;
-    this.controls.target.set(0, 5, 0);
+    this.controls.target.copy(this.initialCameraTarget);
 
     // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -260,9 +265,11 @@ export class VoxelEngine {
 
   public handleResize() {
       if (this.camera && this.renderer) {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
+        const w = this.container.clientWidth || window.innerWidth;
+        const h = this.container.clientHeight || window.innerHeight;
+        this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setSize(w, h);
       }
   }
   
@@ -291,8 +298,46 @@ export class VoxelEngine {
     return Array.from(colors);
   }
 
+  public getCameraState(): { position: THREE.Vector3; target: THREE.Vector3 } {
+    return {
+      position: this.camera.position.clone(),
+      target: this.controls.target.clone(),
+    };
+  }
+
+  public setCameraState(position: THREE.Vector3, target: THREE.Vector3) {
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
+  }
+
+  public resetView() {
+    this.camera.position.copy(this.initialCameraPosition);
+    this.controls.target.copy(this.initialCameraTarget);
+    this.controls.update();
+  }
+
   public cleanup() {
     cancelAnimationFrame(this.animationId);
+    this.controls.dispose();
+    if (this.instanceMesh) {
+      this.scene.remove(this.instanceMesh);
+      this.instanceMesh.geometry.dispose();
+      if (Array.isArray(this.instanceMesh.material)) {
+        this.instanceMesh.material.forEach(m => m.dispose());
+      } else {
+        this.instanceMesh.material.dispose();
+      }
+    }
+    this.scene.traverse(obj => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry?.dispose();
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach(m => m.dispose());
+        } else {
+          obj.material?.dispose();
+        }
+      }
+    });
     this.container.removeChild(this.renderer.domElement);
     this.renderer.dispose();
   }
