@@ -2,6 +2,7 @@ import React from 'react';
 import { GenerationRecord } from '../types';
 import { getSelectionDisplay } from '../services/generators/catalog';
 import { History, Trash2, Download, ChevronRight } from 'lucide-react';
+import { useT } from '../i18n/LocaleContext';
 
 const MAX_HISTORY = 50;
 const STORAGE_KEY = 'voxel_eval_history';
@@ -78,6 +79,7 @@ interface EvalHistoryProps {
 }
 
 export const EvalHistory: React.FC<EvalHistoryProps> = ({ visible, onLoadRecord, onClose, refreshKey }) => {
+  const t = useT();
   const [records, setRecords] = React.useState<GenerationRecord[]>([]);
 
   React.useEffect(() => {
@@ -98,7 +100,7 @@ export const EvalHistory: React.FC<EvalHistoryProps> = ({ visible, onLoadRecord,
   };
 
   const handleClear = () => {
-    if (confirm('Clear all evaluation history?')) {
+    if (confirm(t('history.clear.confirm'))) {
       clearHistory();
       setRecords([]);
     }
@@ -110,7 +112,7 @@ export const EvalHistory: React.FC<EvalHistoryProps> = ({ visible, onLoadRecord,
       <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-200">
         <div className="flex items-center gap-2">
           <History size={18} className="text-[#a1a43a]" />
-          <span className="font-bold text-slate-800 tracking-tight">Eval History</span>
+          <span className="font-bold text-slate-800 tracking-tight">{t('history.title')}</span>
           <span className="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{records.length}</span>
         </div>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-sm font-bold transition-colors">✕</button>
@@ -119,21 +121,21 @@ export const EvalHistory: React.FC<EvalHistoryProps> = ({ visible, onLoadRecord,
       {/* Actions */}
       <div className="flex gap-2 px-5 py-3 border-b border-slate-100">
         <button onClick={() => handleExport('json')} className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-[#a1a43a] transition-colors">
-          <Download size={13} /> JSON
+          <Download size={13} /> {t('history.export.json')}
         </button>
         <button onClick={() => handleExport('csv')} className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-[#a1a43a] transition-colors">
-          <Download size={13} /> CSV
+          <Download size={13} /> {t('history.export.csv')}
         </button>
         <div className="flex-1" />
         <button onClick={handleClear} className="flex items-center gap-1 text-xs font-semibold text-rose-400 hover:text-rose-600 transition-colors">
-          <Trash2 size={13} /> Clear
+          <Trash2 size={13} /> {t('history.clear')}
         </button>
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
         {records.length === 0 && (
-          <p className="text-sm text-slate-400 text-center mt-10">No history yet.</p>
+          <p className="text-sm text-slate-400 text-center mt-10">{t('history.empty')}</p>
         )}
         {[...records].reverse().map((r) => (
           <div key={r.id} className="bg-white border border-slate-200 rounded-xl p-3 hover:border-[#d4d76a] transition-colors group">
@@ -141,7 +143,7 @@ export const EvalHistory: React.FC<EvalHistoryProps> = ({ visible, onLoadRecord,
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-slate-800 truncate">{r.prompt}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {getSelectionDisplay(r.model).fullLabel} · {r.evaluation.voxelCount} voxels · {r.generationTimeMs}ms
+                  {getSelectionDisplay(r.model).fullLabel} · {t('history.subtitle', { count: r.evaluation.voxelCount, ms: r.generationTimeMs })}
                 </p>
                 <p className="text-[10px] text-slate-300 font-mono mt-0.5">
                   {new Date(r.timestamp).toLocaleString()}
@@ -153,13 +155,13 @@ export const EvalHistory: React.FC<EvalHistoryProps> = ({ visible, onLoadRecord,
                 onClick={() => onLoadRecord(r, 'left')}
                 className="flex items-center gap-1 text-[11px] font-bold text-[#a1a43a] hover:text-[#828534] bg-[#f4f5d3] px-2.5 py-1 rounded-lg transition-colors"
               >
-                <ChevronRight size={12} /> Left
+                <ChevronRight size={12} /> {t('history.load.left')}
               </button>
               <button
                 onClick={() => onLoadRecord(r, 'right')}
                 className="flex items-center gap-1 text-[11px] font-bold text-indigo-500 hover:text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg transition-colors"
               >
-                <ChevronRight size={12} /> Right
+                <ChevronRight size={12} /> {t('history.load.right')}
               </button>
             </div>
           </div>

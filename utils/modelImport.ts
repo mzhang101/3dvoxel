@@ -1,8 +1,8 @@
-import { VoxelData } from '../types';
+import { VoxelData, BrickPiece } from '../types';
 
 const DEFAULT_COLOR = 0xb6c27a;
 
-const BRICK_COLORS: Record<string, number> = {
+export const BRICK_COLORS: Record<string, number> = {
   '1x1': 0xf2e8cf,
   '1x2': 0xe07a5f,
   '1x4': 0x3d405b,
@@ -16,6 +16,29 @@ const BRICK_COLORS: Record<string, number> = {
   '6x1': 0x588157,
   '8x1': 0xa68a64,
 };
+
+const BRICK_LINE_REGEX = /(\d+)x(\d+)\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/;
+const COMMON_PREFIX_PATTERNS = [
+  /^bricks\s*[:=]\s*/i,
+  /^output\s*[:=]\s*/i,
+  /^result\s*[:=]\s*/i,
+  /^###\s*output\s*/i,
+];
+
+function cleanBrickText(raw: string): string {
+  let text = raw.trim();
+  // Strip leading + trailing markdown fences (``` or ```text)
+  text = text.replace(/^```[a-zA-Z0-9_-]*\s*\n?/, '');
+  text = text.replace(/\n?```\s*$/, '');
+  for (const pat of COMMON_PREFIX_PATTERNS) {
+    text = text.replace(pat, '');
+  }
+  return text.trim();
+}
+
+function colorForSize(sizeX: number, sizeY: number): number {
+  return BRICK_COLORS[`${sizeX}x${sizeY}`] ?? BRICK_COLORS[`${sizeY}x${sizeX}`] ?? DEFAULT_COLOR;
+}
 
 function normalizeModel(voxels: VoxelData[]): VoxelData[] {
   if (voxels.length === 0) return [];
@@ -77,41 +100,64 @@ function parseVoxelArray(input: unknown): VoxelData[] {
   return normalizeModel(voxels);
 }
 
-function parseBrickLines(bricks: string): VoxelData[] {
-  const lines = bricks
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+/**
+ * Parse brick-line text into BrickPiece[]. Tolerant of markdown fences,
+ * common prefixes (`Bricks:`, `Output:`, `### Output`), and trailing
+ * junk per line (colors / comments). Each line must still contain a
+ * `<sx>x<sy> (x,y,layer)` pattern somewhere.
+ */
+export function parseBrickPieces(rawText: string): BrickPiece[] {
+  const text = cleanBrickText(rawText);
+  const pieces: BrickPiece[] = [];
+  const lines = text.split(/\r?\n/);
+  let idx = 0;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(BRICK_LINE_REGEX);
+    if (!m) continue;
+    const sizeX = Number(m[1]);
+    const sizeY = Number(m[2]);
+    const baseX = Number(m[3]);
+    const baseY = Number(m[4]);
+    const layer = Number(m[5]);
+    pieces.push({
+      id: `b${idx}`,
+      sizeX,
+      sizeY,
+      baseX,
+      baseY,
+      layer,
+      color: colorForSize(sizeX, sizeY),
+    });
+    idx += 1;
+  }
+  return pieces;
+}
+
+export function parseBrickLines(bricks: string): VoxelData[] {
+  const pieces = parseBrickPieces(bricks);
+
+  if (pieces.length === 0) {
+    if (typeof console !== 'undefined') {
+      console.warn('[parseBrickLines] no brick rows matched; raw payload (first 500 chars):', bricks.slice(0, 500));
+    }
+    throw new Error('No valid brick rows found. Expected rows like "2x6 (13,5,0)".');
+  }
 
   const voxels: VoxelData[] = [];
-
-  for (const line of lines) {
-    const match = line.match(/^(\d+)x(\d+)\s*\((-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\)$/);
-    if (!match) continue;
-
-    const sizeX = Number(match[1]);
-    const sizeY = Number(match[2]);
-    const baseX = Number(match[3]);
-    const baseY = Number(match[4]);
-    const baseZ = Number(match[5]);
-
-    const color = BRICK_COLORS[`${sizeX}x${sizeY}`] ?? BRICK_COLORS[`${sizeY}x${sizeX}`] ?? DEFAULT_COLOR;
-
-    for (let dx = 0; dx < sizeX; dx += 1) {
-      for (let dy = 0; dy < sizeY; dy += 1) {
+  for (const p of pieces) {
+    for (let dx = 0; dx < p.sizeX; dx += 1) {
+      for (let dy = 0; dy < p.sizeY; dy += 1) {
         // Dataset coordinates are (x, y, layer). Convert layer to vertical y-axis.
         voxels.push({
-          x: baseX + dx,
-          y: baseZ,
-          z: baseY + dy,
-          color,
+          x: p.baseX + dx,
+          y: p.layer,
+          z: p.baseY + dy,
+          color: p.color,
         });
       }
     }
-  }
-
-  if (voxels.length === 0) {
-    throw new Error('No valid brick rows found. Expected rows like "2x6 (13,5,0)".');
   }
 
   return normalizeModel(voxels);
@@ -148,6 +194,26 @@ function parseNumericGrid(grid: unknown): VoxelData[] {
   }
 
   return normalizeModel(voxels);
+}
+
+/**
+ * Wrap an arbitrary VoxelData[] as 1×1 BrickPiece[] so it can flow through
+ * the brick rendering / coloring path. Used for presets, mock generator,
+ * and free-form voxel imports that don't carry brick-line data.
+ *
+ * Mapping: brick.baseX = voxel.x; brick.baseY = voxel.z; brick.layer = voxel.y.
+ * (matches the inverse transform in parseBrickLines)
+ */
+export function voxelsToBricks(voxels: VoxelData[]): BrickPiece[] {
+  return voxels.map((v, i) => ({
+    id: `v${i}`,
+    sizeX: 1,
+    sizeY: 1,
+    baseX: v.x,
+    baseY: v.z,
+    layer: v.y,
+    color: Number.isFinite(v.color) ? v.color : DEFAULT_COLOR,
+  }));
 }
 
 export function parseImportedModel(rawText: string): VoxelData[] {

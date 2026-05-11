@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { VoxelData, LLMJudgeScores } from '../types';
 import { GEMINI_JUDGE_MODELS, runWithGeminiModelFallback } from './geminiModelFallback';
 
-export async function judgGeneration(
+export async function judgeGeneration(
   prompt: string,
   voxels: VoxelData[],
   apiKey: string,

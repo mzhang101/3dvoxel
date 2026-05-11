@@ -5,6 +5,7 @@
 
 
 import * as THREE from 'three';
+import type { ConstraintReport } from './utils/constraintEvaluator';
 
 export enum AppState {
   STABLE = 'STABLE',
@@ -16,6 +17,48 @@ export interface VoxelData {
   y: number;
   z: number;
   color: number;
+}
+
+export interface BrickPiece {
+  id: string;
+  sizeX: number;
+  sizeY: number;
+  baseX: number;
+  baseY: number;
+  layer: number;
+  color: number;
+}
+
+export interface BrickInstance {
+  id: string;
+  sizeX: number;
+  sizeY: number;
+  baseX: number;
+  baseY: number;
+  layer: number;
+  /** World-space brick center (after normalization). Animated. */
+  x: number;
+  y: number;
+  z: number;
+  /** Final-resting world-space brick center. */
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  baseColor: THREE.Color;
+  color: THREE.Color;
+  vx: number;
+  vy: number;
+  vz: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  rvx: number;
+  rvy: number;
+  rvz: number;
+  /** "<sizeX>x<sizeY>" — keys into brickMeshes. */
+  sizeKey: string;
+  /** Index inside its size group's InstancedMesh. */
+  slotIdx: number;
 }
 
 export interface SimulationVoxel {
@@ -98,4 +141,6 @@ export interface GenerationRecord {
   voxelData: VoxelData[];
   evaluation: EvaluationScores;
   llmJudge?: LLMJudgeScores;
+  constraintReport?: ConstraintReport;
+  sourceBricks?: string;
 }

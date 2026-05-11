@@ -1,76 +1,46 @@
 import React from 'react';
 import { EvaluationScores, LLMJudgeScores } from '../types';
 import { BarChart3, Brain, CircleHelp } from 'lucide-react';
+import { useT } from '../i18n/LocaleContext';
 
 interface MetricsPanelProps {
   left: { label: string; eval: EvaluationScores; judge?: LLMJudgeScores } | null;
   right: { label: string; eval: EvaluationScores; judge?: LLMJudgeScores } | null;
 }
 
-const METRIC_GUIDE = [
-  {
-    name: 'Voxel Count',
-    meaning: 'The total number of voxels used in the model. It mainly reflects scale and detail density.',
-    better: 'Contextual',
-  },
-  {
-    name: 'Connectivity',
-    meaning: 'How many separate voxel components exist. A value of 1 means the model is fully connected.',
-    better: 'Lower is better',
-  },
-  {
-    name: 'Symmetry',
-    meaning: 'Mirror consistency across the x-axis. Higher values mean the left and right halves align more closely.',
-    better: 'Higher is better',
-  },
-  {
-    name: 'Color Diversity',
-    meaning: 'The number of distinct colors used. Higher values usually indicate a richer palette.',
-    better: 'Higher is better',
-  },
-  {
-    name: 'HSL Variance',
-    meaning: 'How much the hue, saturation, and lightness vary across the palette. Higher values mean more tonal spread.',
-    better: 'Higher is better',
-  },
-  {
-    name: 'Centering Error',
-    meaning: 'Distance from the model center to x=0, z=0. Lower values mean the asset is better centered in the scene.',
-    better: 'Lower is better',
-  },
-  {
-    name: 'Surface Ratio',
-    meaning: 'Share of voxel faces exposed to the outside. Higher values often indicate less solid mass and more visible shape detail.',
-    better: 'Higher is usually better',
-  },
-  {
-    name: 'Floor OK',
-    meaning: 'Checks whether the model sits on or above the ground plane without dipping below the expected floor.',
-    better: '1 is better',
-  },
+interface MetricGuideItem {
+  id: string;
+  nameKey: string;
+  meaningKey: string;
+  betterKey: string;
+}
+
+const METRIC_GUIDE: readonly MetricGuideItem[] = [
+  { id: 'voxel_count',     nameKey: 'metric.voxel_count',     meaningKey: 'metric.voxel_count.meaning',     betterKey: 'metric.voxel_count.better' },
+  { id: 'connectivity',    nameKey: 'metric.connectivity',    meaningKey: 'metric.connectivity.meaning',    betterKey: 'metric.connectivity.better' },
+  { id: 'symmetry',        nameKey: 'metric.symmetry',        meaningKey: 'metric.symmetry.meaning',        betterKey: 'metric.symmetry.better' },
+  { id: 'color_diversity', nameKey: 'metric.color_diversity', meaningKey: 'metric.color_diversity.meaning', betterKey: 'metric.color_diversity.better' },
+  { id: 'hsl_variance',    nameKey: 'metric.hsl_variance',    meaningKey: 'metric.hsl_variance.meaning',    betterKey: 'metric.hsl_variance.better' },
+  { id: 'centering_error', nameKey: 'metric.centering_error', meaningKey: 'metric.centering_error.meaning', betterKey: 'metric.centering_error.better' },
+  { id: 'surface_ratio',   nameKey: 'metric.surface_ratio',   meaningKey: 'metric.surface_ratio.meaning',   betterKey: 'metric.surface_ratio.better' },
+  { id: 'floor_ok',        nameKey: 'metric.floor_ok',        meaningKey: 'metric.floor_ok.meaning',        betterKey: 'metric.floor_ok.better' },
 ] as const;
 
-const JUDGE_GUIDE = [
-  {
-    name: 'Prompt',
-    meaning: 'How well the generated structure matches the requested object or concept.',
-  },
-  {
-    name: 'Structure',
-    meaning: 'How plausible, stable, and physically connected the voxel form appears.',
-  },
-  {
-    name: 'Aesthetic',
-    meaning: 'How well the proportions, silhouette, and color choices work visually.',
-  },
-  {
-    name: 'Creative',
-    meaning: 'How original or interesting the output feels beyond a plain baseline solution.',
-  },
+interface JudgeGuideItem {
+  id: string;
+  nameKey: string;
+  meaningKey: string;
+}
+
+const JUDGE_GUIDE: readonly JudgeGuideItem[] = [
+  { id: 'prompt',    nameKey: 'judge.prompt',    meaningKey: 'judge.prompt.meaning' },
+  { id: 'structure', nameKey: 'judge.structure', meaningKey: 'judge.structure.meaning' },
+  { id: 'aesthetic', nameKey: 'judge.aesthetic', meaningKey: 'judge.aesthetic.meaning' },
+  { id: 'creative',  nameKey: 'judge.creative',  meaningKey: 'judge.creative.meaning' },
 ] as const;
 
-function getMetricGuide(name: string) {
-  return METRIC_GUIDE.find((item) => item.name === name);
+function getMetricGuide(id: string): MetricGuideItem | undefined {
+  return METRIC_GUIDE.find((item) => item.id === id);
 }
 
 // ---- Helpers ----
@@ -158,19 +128,21 @@ function RadarChart({ left, right }: { left: number[]; right: number[] }) {
 // ---- Component ----
 
 export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
+  const t = useT();
   if (!left && !right) return null;
 
   const hasBoth = !!left && !!right;
   const [showGuide, setShowGuide] = React.useState(false);
 
   type Row = {
+    id: string;
     label: string;
     lVal: string;
     rVal: string;
     dir: Direction;
     lNum: number;
     rNum: number;
-    guide?: (typeof METRIC_GUIDE)[number];
+    guide?: MetricGuideItem;
   };
 
   function buildRows(): Row[] {
@@ -178,26 +150,27 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
     const re = right?.eval;
     const rows: Row[] = [];
 
-    const push = (label: string, lv: number | undefined, rv: number | undefined, dir: Direction, dec = 2) => {
+    const push = (id: string, nameKey: string, lv: number | undefined, rv: number | undefined, dir: Direction, dec = 2) => {
       rows.push({
-        label,
+        id,
+        label: t(nameKey),
         lVal: lv != null ? fmt(lv, dec) : '—',
         rVal: rv != null ? fmt(rv, dec) : '—',
         dir,
         lNum: lv ?? 0,
         rNum: rv ?? 0,
-        guide: getMetricGuide(label),
+        guide: getMetricGuide(id),
       });
     };
 
-    push('Voxel Count', le?.voxelCount, re?.voxelCount, 'neutral', 0);
-    push('Connectivity', le?.connectivity.componentCount, re?.connectivity.componentCount, 'lower', 0);
-    push('Symmetry', le?.symmetryScore, re?.symmetryScore, 'higher');
-    push('Color Diversity', le?.colorDiversity.uniqueColorCount, re?.colorDiversity.uniqueColorCount, 'higher', 0);
-    push('HSL Variance', le?.colorDiversity.hslVariance, re?.colorDiversity.hslVariance, 'higher', 4);
-    push('Centering Error', le?.centeringError.distance, re?.centeringError.distance, 'lower');
-    push('Surface Ratio', le?.surfaceRatio, re?.surfaceRatio, 'higher');
-    push('Floor OK', le?.floorCompliance ? 1 : 0, re?.floorCompliance ? 1 : 0, 'higher', 0);
+    push('voxel_count',     'metric.voxel_count',     le?.voxelCount,                           re?.voxelCount,                           'neutral', 0);
+    push('connectivity',    'metric.connectivity',    le?.connectivity.componentCount,          re?.connectivity.componentCount,          'lower', 0);
+    push('symmetry',        'metric.symmetry',        le?.symmetryScore,                         re?.symmetryScore,                         'higher');
+    push('color_diversity', 'metric.color_diversity', le?.colorDiversity.uniqueColorCount,       re?.colorDiversity.uniqueColorCount,       'higher', 0);
+    push('hsl_variance',    'metric.hsl_variance',    le?.colorDiversity.hslVariance,            re?.colorDiversity.hslVariance,            'higher', 4);
+    push('centering_error', 'metric.centering_error', le?.centeringError.distance,               re?.centeringError.distance,               'lower');
+    push('surface_ratio',   'metric.surface_ratio',   le?.surfaceRatio,                          re?.surfaceRatio,                          'higher');
+    push('floor_ok',        'metric.floor_ok',        le?.floorCompliance ? 1 : 0,               re?.floorCompliance ? 1 : 0,               'higher', 0);
 
     return rows;
   }
@@ -214,14 +187,14 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={18} className="text-[#a1a43a]" />
-          <span className="font-bold text-slate-800 tracking-tight">Evaluation Metrics</span>
+          <span className="font-bold text-slate-800 tracking-tight">{t('metrics.title')}</span>
         </div>
 
         <button
           onClick={() => setShowGuide(prev => !prev)}
           className={`w-8 h-8 rounded-full border text-sm font-black transition-all ${showGuide ? 'bg-[#f4f5d3] text-[#8e9234] border-[#d4d76a]/60' : 'bg-white text-slate-500 border-slate-200 hover:text-slate-700 hover:border-slate-300'}`}
-          title="Explain each metric"
-          aria-label="Explain each metric"
+          title={t('metrics.help_aria')}
+          aria-label={t('metrics.help_aria')}
         >
           ?
         </button>
@@ -231,27 +204,27 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
         <div className="mb-4 rounded-2xl border border-[#dfe4a6] bg-[#fbfce8] px-4 py-4 shadow-sm">
           <div className="grid gap-3">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#8e9234]">Metric Guide</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#8e9234]">{t('metrics.guide_title')}</p>
               <div className="mt-2 grid gap-2">
                 {METRIC_GUIDE.map((item) => (
-                  <div key={item.name} className="rounded-xl bg-white/70 px-3 py-2 border border-white/60">
+                  <div key={item.id} className="rounded-xl bg-white/70 px-3 py-2 border border-white/60">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-bold text-slate-800">{item.name}</span>
-                      <span className="text-[10px] font-black uppercase tracking-wide text-[#8e9234]">{item.better}</span>
+                      <span className="text-sm font-bold text-slate-800">{t(item.nameKey)}</span>
+                      <span className="text-[10px] font-black uppercase tracking-wide text-[#8e9234]">{t(item.betterKey)}</span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{item.meaning}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{t(item.meaningKey)}</p>
                   </div>
                 ))}
               </div>
             </div>
 
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500">LLM Judge Guide</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500">{t('metrics.judge_guide_title')}</p>
               <div className="mt-2 grid gap-2">
                 {JUDGE_GUIDE.map((item) => (
-                  <div key={item.name} className="rounded-xl bg-white/70 px-3 py-2 border border-white/60">
-                    <span className="text-sm font-bold text-slate-800">{item.name}</span>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{item.meaning}</p>
+                  <div key={item.id} className="rounded-xl bg-white/70 px-3 py-2 border border-white/60">
+                    <span className="text-sm font-bold text-slate-800">{t(item.nameKey)}</span>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{t(item.meaningKey)}</p>
                   </div>
                 ))}
               </div>
@@ -265,10 +238,10 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200">
-              <th className="text-left py-2 pr-3 text-slate-400 font-semibold text-xs uppercase tracking-wider">Metric</th>
-              <th className="text-right py-2 px-3 text-[#a1a43a] font-bold text-xs uppercase tracking-wider">{left?.label ?? 'Left'}</th>
+              <th className="text-left py-2 pr-3 text-slate-400 font-semibold text-xs uppercase tracking-wider">{t('metrics.column.metric')}</th>
+              <th className="text-right py-2 px-3 text-[#a1a43a] font-bold text-xs uppercase tracking-wider">{left?.label ?? t('metrics.column.left')}</th>
               {hasBoth && (
-                <th className="text-right py-2 pl-3 text-indigo-500 font-bold text-xs uppercase tracking-wider">{right?.label ?? 'Right'}</th>
+                <th className="text-right py-2 pl-3 text-indigo-500 font-bold text-xs uppercase tracking-wider">{right?.label ?? t('metrics.column.right')}</th>
               )}
             </tr>
           </thead>
@@ -278,7 +251,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
               const preferAbove = index >= rows.length - 3;
 
               return (
-                <tr key={r.label} className="border-b border-slate-100 last:border-0">
+                <tr key={r.id} className="border-b border-slate-100 last:border-0">
                   <td className="py-1.5 pr-3 text-slate-600 font-medium">
                     <div className="inline-flex items-center gap-2">
                       <span>{r.label}</span>
@@ -301,7 +274,7 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
         <div className="mt-5 pt-4 border-t border-slate-200">
           <div className="flex items-center gap-2 mb-3">
             <Brain size={16} className="text-[#a1a43a]" />
-            <span className="font-bold text-slate-800 text-sm tracking-tight">LLM Judge Scores</span>
+            <span className="font-bold text-slate-800 text-sm tracking-tight">{t('metrics.judge_title')}</span>
             <JudgeHelpBadge />
           </div>
           <RadarChart left={leftJudge} right={rightJudge} />
@@ -333,48 +306,53 @@ export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
   );
 };
 
-function MetricHelpBadge({ item, preferAbove = false }: { item: (typeof METRIC_GUIDE)[number]; preferAbove?: boolean }) {
+function MetricHelpBadge({ item, preferAbove = false }: { item: MetricGuideItem; preferAbove?: boolean }) {
+  const t = useT();
+  const name = t(item.nameKey);
+  const meaning = t(item.meaningKey);
+  const better = t(item.betterKey);
   return (
     <div className="relative inline-flex items-center group/metric-help">
       <button
         type="button"
         className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-all hover:border-[#d4d76a]/70 hover:text-[#8e9234] focus:border-[#d4d76a]/70 focus:text-[#8e9234] focus:outline-none"
-        aria-label={`Explain ${item.name}`}
-        title={`${item.name}: ${item.meaning}`}
+        aria-label={name}
+        title={`${name}: ${meaning}`}
       >
         <CircleHelp size={11} strokeWidth={2.3} />
       </button>
 
       <div className={`pointer-events-none absolute left-0 z-20 w-64 rounded-2xl border border-slate-200 bg-white/95 px-3 py-3 text-left shadow-xl opacity-0 transition-all duration-150 group-hover/metric-help:opacity-100 group-focus-within/metric-help:opacity-100 ${preferAbove ? 'bottom-full mb-2 -translate-y-1 group-hover/metric-help:translate-y-0 group-focus-within/metric-help:translate-y-0' : 'top-full mt-2 translate-y-1 group-hover/metric-help:translate-y-0 group-focus-within/metric-help:translate-y-0'}`}>
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-black uppercase tracking-wide text-slate-700">{item.name}</span>
-          <span className="text-[10px] font-black uppercase tracking-wide text-[#8e9234]">{item.better}</span>
+          <span className="text-xs font-black uppercase tracking-wide text-slate-700">{name}</span>
+          <span className="text-[10px] font-black uppercase tracking-wide text-[#8e9234]">{better}</span>
         </div>
-        <p className="mt-2 text-xs leading-5 text-slate-600">{item.meaning}</p>
+        <p className="mt-2 text-xs leading-5 text-slate-600">{meaning}</p>
       </div>
     </div>
   );
 }
 
 function JudgeHelpBadge() {
+  const t = useT();
   return (
     <div className="relative inline-flex items-center group/judge-help">
       <button
         type="button"
         className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-all hover:border-indigo-300 hover:text-indigo-500 focus:border-indigo-300 focus:text-indigo-500 focus:outline-none"
-        aria-label="Explain LLM judge scores"
-        title="Explain LLM judge scores"
+        aria-label={t('metrics.judge_guide_title')}
+        title={t('metrics.judge_guide_title')}
       >
         <CircleHelp size={11} strokeWidth={2.3} />
       </button>
 
       <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white/95 px-3 py-3 text-left shadow-xl opacity-0 translate-y-1 transition-all duration-150 group-hover/judge-help:opacity-100 group-hover/judge-help:translate-y-0 group-focus-within/judge-help:opacity-100 group-focus-within/judge-help:translate-y-0">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-500">LLM Judge Axes</p>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-500">{t('metrics.judge_axes_title')}</p>
         <div className="mt-2 grid gap-2">
           {JUDGE_GUIDE.map((item) => (
-            <div key={item.name} className="rounded-xl bg-slate-50 px-3 py-2">
-              <span className="text-xs font-bold text-slate-800">{item.name}</span>
-              <p className="mt-1 text-xs leading-5 text-slate-600">{item.meaning}</p>
+            <div key={item.id} className="rounded-xl bg-slate-50 px-3 py-2">
+              <span className="text-xs font-bold text-slate-800">{t(item.nameKey)}</span>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{t(item.meaningKey)}</p>
             </div>
           ))}
         </div>
