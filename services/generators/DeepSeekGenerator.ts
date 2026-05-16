@@ -2,6 +2,7 @@ import { VoxelData, BrickPiece } from '../../types';
 import { GeneratorAdapter, GenerationOptions } from './index';
 import { parseBrickLines, parseBrickPieces } from '../../utils/modelImport';
 import { ALLOWED_BRICKS_LIST } from '../../utils/brickLibrary';
+import { isFetchNetworkError } from '../../utils/generationErrors';
 
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
 const DEEPSEEK_MAX_TOKENS = 32768; // V4 caps at 384K; 32K is ample headroom for ~2K bricks
@@ -41,7 +42,7 @@ export class DeepSeekGenerator implements GeneratorAdapter {
 
     const userMessage = `### Input:\n${prompt}\n\nReturn JSON in the form { "bricks": "<brick-line text>" }.`;
 
-    const response = await fetch(DEEPSEEK_ENDPOINT, {
+    const requestInit: RequestInit = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -58,7 +59,13 @@ export class DeepSeekGenerator implements GeneratorAdapter {
         max_tokens: DEEPSEEK_MAX_TOKENS,
         stream: true,
       }),
-    });
+      signal: opts?.signal,
+    };
+
+    const startedAt = performance.now();
+    const response = await fetchWithRetry(DEEPSEEK_ENDPOINT, requestInit, 2);
+    const ttfb = performance.now() - startedAt;
+    console.info(`[deepseek:${this.modelId}] TTFB=${ttfb.toFixed(0)}ms`);
 
     if (!response.ok) {
       let detail = '';
@@ -71,7 +78,15 @@ export class DeepSeekGenerator implements GeneratorAdapter {
       throw new Error(`DeepSeek API error (${response.status}): ${detail}`);
     }
 
-    const content = await readSseContent(response, opts?.onProgress);
+    let firstChunkLogged = false;
+    const content = await readSseContent(response, opts?.onProgress, () => {
+      if (firstChunkLogged) return;
+      firstChunkLogged = true;
+      const ttfs = performance.now() - startedAt;
+      console.info(`[deepseek:${this.modelId}] TTFS=${ttfs.toFixed(0)}ms (first stream chunk)`);
+    });
+    const total = performance.now() - startedAt;
+    console.info(`[deepseek:${this.modelId}] total=${total.toFixed(0)}ms, chars=${content.length}`);
 
     let parsed: { bricks?: string };
     try {
@@ -91,6 +106,23 @@ export class DeepSeekGenerator implements GeneratorAdapter {
   }
 }
 
+/** Retry POST on transient network failures (fetch rejections), bounded backoff. */
+async function fetchWithRetry(url: string, init: RequestInit, retries: number): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastErr = err;
+      if (!isFetchNetworkError(err) || attempt === retries) throw err;
+      // Backoff: 1s, then 2s
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 /**
  * Consume a DeepSeek SSE chat-completion stream. Returns the concatenated
  * `choices[0].delta.content` string and fires onProgress every 50ms with a
@@ -99,6 +131,7 @@ export class DeepSeekGenerator implements GeneratorAdapter {
 async function readSseContent(
   response: Response,
   onProgress?: (p: { chars: number; lines: number; tail: string }) => void,
+  onFirstChunk?: () => void,
 ): Promise<string> {
   if (!response.body) {
     throw new Error('DeepSeek returned an empty response body.');
@@ -122,7 +155,6 @@ async function readSseContent(
     });
   };
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -140,6 +172,7 @@ async function readSseContent(
         };
         const piece = parsed.choices?.[0]?.delta?.content;
         if (piece) {
+          if (accumulated.length === 0 && onFirstChunk) onFirstChunk();
           accumulated += piece;
           fireProgress();
         }

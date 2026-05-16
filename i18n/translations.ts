@@ -13,6 +13,7 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'app.source.gemini': 'Gemini · {model}',
     'app.source.deepseek': 'DeepSeek · {model}',
     'app.source.mock': 'Mock generator',
+    'app.source.grpo': 'GRPO \u00b7 {prompt}',
     'app.alert.preset_saved': 'Saved to presets successfully!',
     'app.alert.preset_save_failed': 'Failed to save preset.',
     'app.alert.preset_name_prompt': 'Enter a name for this preset:',
@@ -45,6 +46,11 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'ui.loading.5': 'Applying polish...',
     'ui.loading.title': 'Generating...',
     'ui.loading.progress': 'Received {lines} rows · {chars} chars',
+    'ui.loading.waiting': 'Waiting for the model… {seconds}s elapsed',
+    'ui.loading.cancel': 'Cancel generation',
+    'paint.indicator.active': 'Painting · {color}',
+    'ui.icon.scatter': 'Scatter bricks',
+    'ui.icon.reassemble': 'Reassemble',
 
     // ===== UIOverlay bottom controls =====
     'ui.button.generate_model': 'Generate Model',
@@ -84,6 +90,10 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'constraint.panel.rerun': 'Re-run check',
     'constraint.panel.highlight': 'Highlight overlapping bricks',
     'constraint.panel.unhighlight': 'Clear highlight',
+    'constraint.panel.highlight_short': 'Highlight',
+    'constraint.panel.unhighlight_short': 'Clear',
+    'constraint.structural_test': 'Drop Test',
+    'constraint.structural_test.tooltip': 'Let unsupported bricks fall to visualize instability',
     'constraint.panel.footer': 'Mirrors the hard-constraint reward used by GRPO training (brick library, collision-free, bounding volume, physical stability, topological integrity).',
     'constraint.panel.progress': 'Checking {current}/{total}: {name}',
 
@@ -195,6 +205,9 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
 
     // ===== WelcomeScreen =====
     'welcome.message': 'Welcome to experience the magic of Voxels.',
+    'welcome.title': 'VOXEL AI',
+    'welcome.subtitle': 'Generator',
+    'welcome.start': 'Start Building',
 
     // ===== ComparisonView =====
     'compare.exit': 'Exit',
@@ -232,6 +245,7 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'benchmark.title': 'Geo3D GRPO Benchmark',
     'benchmark.subtitle': '{total} prompts from the GRPO test set',
     'benchmark.search': 'Search prompt…',
+    'benchmark.load': 'Load',
     'benchmark.load.left': 'Load Left',
     'benchmark.load.right': 'Load Right',
     'benchmark.empty': 'No prompts match the search.',
@@ -270,6 +284,7 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'app.source.gemini': 'Gemini · {model}',
     'app.source.deepseek': 'DeepSeek · {model}',
     'app.source.mock': '本地模拟生成',
+    'app.source.grpo': 'GRPO \u00b7 {prompt}',
     'app.alert.preset_saved': '预设保存成功！',
     'app.alert.preset_save_failed': '预设保存失败。',
     'app.alert.preset_name_prompt': '请输入预设名称：',
@@ -302,6 +317,11 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'ui.loading.5': '正在最后润色…',
     'ui.loading.title': '生成中…',
     'ui.loading.progress': '已接收 {lines} 行 · {chars} 字符',
+    'ui.loading.waiting': '等待模型响应… 已等待 {seconds}s',
+    'ui.loading.cancel': '取消生成',
+    'paint.indicator.active': '正在涂色 · {color}',
+    'ui.icon.scatter': '拆散砖块',
+    'ui.icon.reassemble': '复原',
 
     // ===== UIOverlay bottom controls =====
     'ui.button.generate_model': '生成模型',
@@ -341,6 +361,10 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'constraint.panel.rerun': '重新检测',
     'constraint.panel.highlight': '高亮重叠砖块',
     'constraint.panel.unhighlight': '取消高亮',
+    'constraint.panel.highlight_short': '高亮',
+    'constraint.panel.unhighlight_short': '取消',
+    'constraint.structural_test': '下落测试',
+    'constraint.structural_test.tooltip': '让不稳定的砖块自由下落以可视化结构问题',
     'constraint.panel.footer': '此模块对应 GRPO 训练奖励中的硬约束（砖块库合规、无碰撞、包围盒、物理稳定性、拓扑完整性）。',
     'constraint.panel.progress': '正在检测 {current}/{total}：{name}',
 
@@ -452,6 +476,9 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
 
     // ===== WelcomeScreen =====
     'welcome.message': '欢迎体验体素世界的奇妙。',
+    'welcome.title': '体素 AI',
+    'welcome.subtitle': '生成器',
+    'welcome.start': '开始搭建',
 
     // ===== ComparisonView =====
     'compare.exit': '退出',
@@ -489,6 +516,7 @@ export const TRANSLATIONS: Record<Locale, Dict> = {
     'benchmark.title': 'Geo3D GRPO 基准集',
     'benchmark.subtitle': '共 {total} 条来自 GRPO 测试集的 prompt',
     'benchmark.search': '搜索 prompt…',
+    'benchmark.load': '加载',
     'benchmark.load.left': '加载到左',
     'benchmark.load.right': '加载到右',
     'benchmark.empty': '没有匹配的 prompt。',

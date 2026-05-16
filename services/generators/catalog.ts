@@ -50,16 +50,18 @@ export const GEMINI_MODEL_OPTIONS: readonly GeneratorChildOption[] = [
  */
 export const DEEPSEEK_MODEL_OPTIONS: readonly GeneratorChildOption[] = [
   {
-    key: 'deepseek-v4-pro',
-    label: 'V4 Pro',
-    enabled: true,
-    apiId: 'deepseek-v4-pro',
-  },
-  {
     key: 'deepseek-v4-flash',
     label: 'V4 Flash',
     enabled: true,
     apiId: 'deepseek-v4-flash',
+  },
+  {
+    // V4 Pro is the 1.6T-parameter model; its "thinking" phase before the first
+    // stream chunk can run 1–5 minutes on complex prompts. The UI marks it slower.
+    key: 'deepseek-v4-pro',
+    label: 'V4 Pro (slower)',
+    enabled: true,
+    apiId: 'deepseek-v4-pro',
   },
 ] as const;
 

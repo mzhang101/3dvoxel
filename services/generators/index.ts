@@ -12,6 +12,8 @@ export interface GenerationProgress {
 
 export interface GenerationOptions {
   onProgress?: (progress: GenerationProgress) => void;
+  /** Abort signal; if aborted, the generator should bail out ASAP. */
+  signal?: AbortSignal;
 }
 
 export interface GeneratorAdapter {

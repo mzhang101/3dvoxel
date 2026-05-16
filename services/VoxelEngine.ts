@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { AppState, SimulationVoxel, RebuildTarget, VoxelData, BrickPiece, BrickInstance } from '../types';
-import { CONFIG, COLORS } from '../utils/voxelConstants';
+import { CONFIG } from '../utils/voxelConstants';
 import { getBrickGeometry } from './brickMeshLibrary';
 
 type EngineMode = 'voxel' | 'brick';
@@ -35,6 +35,13 @@ export class VoxelEngine {
   private highlightedBrickIds: Set<string> = new Set();
   private brickColorOverrides: Map<string, THREE.Color> = new Map();
   private raycaster = new THREE.Raycaster();
+
+  private droppingBrickIds: Set<string> = new Set();
+  private dropPhysics: Map<string, { vy: number; rvx: number; rvz: number; settled: boolean }> = new Map();
+  private lastDropTime: number = 0;
+
+  /** True while bricks have been scattered to the ground via scatterAllBricks. */
+  private scatterActive: boolean = false;
 
   private state: AppState = AppState.STABLE;
   private onStateChange: (state: AppState) => void;
@@ -208,7 +215,7 @@ export class VoxelEngine {
     this.onCountChange(this.voxels.length);
 
     // Set targets to their final positions
-    this.rebuildTargets = data.map((v, i) => {
+    this.rebuildTargets = data.map((v) => {
         // Delay based on y position so bottom builds first
         const h = Math.max(0, (v.y - CONFIG.FLOOR_Y) / 15);
         return {
@@ -278,8 +285,9 @@ export class VoxelEngine {
       this.updatePhysics();
     }
 
-    // Optimize: only draw if moving
-    if (this.state !== AppState.STABLE || this.controls.autoRotate) {
+    const dropping = this.mode === 'brick' && this.updateDroppingBricks();
+
+    if (this.state !== AppState.STABLE || this.controls.autoRotate || dropping) {
       if (this.mode === 'brick') this.drawBricks();
       else this.draw();
     }
@@ -323,6 +331,31 @@ export class VoxelEngine {
   }
 
   public getJsonData(): string {
+      // Brick mode: expand each brick to its constituent voxels, applying
+      // current effective colors (base / override / highlight). Save flow uses
+      // this output, so without this branch we'd persist an empty array.
+      if (this.mode === 'brick' && this.bricks.length > 0) {
+        const data: Array<{ id: number; x: number; y: number; z: number; c: string }> = [];
+        let i = 0;
+        for (const b of this.bricks) {
+          const color = '#' + this.effectiveBrickColor(b).getHexString();
+          const halfX = (b.sizeX - 1) / 2;
+          const halfZ = (b.sizeY - 1) / 2;
+          for (let dx = 0; dx < b.sizeX; dx += 1) {
+            for (let dy = 0; dy < b.sizeY; dy += 1) {
+              data.push({
+                id: i,
+                x: Math.round(b.targetX - halfX + dx),
+                y: Math.round(b.targetY),
+                z: Math.round(b.targetZ - halfZ + dy),
+                c: color,
+              });
+              i += 1;
+            }
+          }
+        }
+        return JSON.stringify(data, null, 2);
+      }
       const data = this.voxels.map((v, i) => ({
           id: i,
           x: +v.x.toFixed(2),
@@ -332,8 +365,15 @@ export class VoxelEngine {
       }));
       return JSON.stringify(data, null, 2);
   }
-  
+
   public getUniqueColors(): string[] {
+    if (this.mode === 'brick' && this.bricks.length > 0) {
+      const colors = new Set<string>();
+      this.bricks.forEach(b => {
+        colors.add('#' + this.effectiveBrickColor(b).getHexString());
+      });
+      return Array.from(colors);
+    }
     const colors = new Set<string>();
     this.voxels.forEach(v => {
         colors.add('#' + v.color.getHexString());
@@ -500,6 +540,7 @@ export class VoxelEngine {
     this.bricks = this.buildBrickInstances(bricks);
     this.buildBrickInstancedMeshes();
     this.mode = 'brick';
+    this.scatterActive = false;
     this.drawBricks();
     this.onCountChange(this.bricks.length);
     this.state = AppState.STABLE;
@@ -535,8 +576,106 @@ export class VoxelEngine {
       return { x: b.targetX, y: b.targetY, z: b.targetZ, delay: h * 600 + Math.random() * 200 };
     });
 
+    this.scatterActive = false;
     this.state = AppState.GENERATING;
     this.onStateChange(this.state);
+  }
+
+  // ----- Scatter / reassemble toggle -----
+
+  /**
+   * Fly every brick out to a settlement on the floor, **grouped by brick size**.
+   * Each unique sizeKey gets its own cluster centre placed evenly around a ring;
+   * inside a cluster, bricks land in a disk whose radius grows with member count.
+   * Idempotent: a no-op if already scattered (use reassembleBricks instead).
+   */
+  public scatterAllBricks(): void {
+    if (this.mode !== 'brick' || this.bricks.length === 0) return;
+    if (this.state === AppState.GENERATING) return;
+    if (this.scatterActive) return;
+
+    // 1. Group bricks by sizeKey (e.g. "2x4", "1x1").
+    const groups = new Map<string, BrickInstance[]>();
+    for (const b of this.bricks) {
+      const list = groups.get(b.sizeKey);
+      if (list) list.push(b);
+      else groups.set(b.sizeKey, [b]);
+    }
+
+    // 2. Sort sizes by footprint descending so big-brick clusters get placed first.
+    //    Stable ordering also keeps the layout visually consistent across runs.
+    const sizeKeys = Array.from(groups.keys()).sort((a, b) => {
+      const [ax, ay] = a.split('x').map(Number);
+      const [bx, by] = b.split('x').map(Number);
+      return (bx * by) - (ax * ay);
+    });
+
+    // 3. Place each cluster centre on a ring around the origin.
+    const numGroups = sizeKeys.length;
+    const ringRadius = numGroups <= 1 ? 0 : 18;   // single-size models stay at origin
+    const clusterCenters = new Map<string, { x: number; z: number }>();
+    sizeKeys.forEach((key, idx) => {
+      const angle = (idx / Math.max(numGroups, 1)) * Math.PI * 2;
+      clusterCenters.set(key, {
+        x: Math.cos(angle) * ringRadius,
+        z: Math.sin(angle) * ringRadius,
+      });
+    });
+
+    // 4. Inside each cluster, place bricks in a disk with sqrt-uniform sampling
+    //    so density stays roughly even regardless of member count.
+    const targetById = new Map<string, RebuildTarget>();
+    for (const sizeKey of sizeKeys) {
+      const members = groups.get(sizeKey)!;
+      const centre = clusterCenters.get(sizeKey)!;
+      const clusterRadius = Math.max(1.5, Math.sqrt(members.length) * 1.3);
+      for (const b of members) {
+        const localAngle = Math.random() * Math.PI * 2;
+        const localR = Math.sqrt(Math.random()) * clusterRadius;
+        targetById.set(b.id, {
+          x: centre.x + Math.cos(localAngle) * localR,
+          y: CONFIG.FLOOR_Y + 0.5,
+          z: centre.z + Math.sin(localAngle) * localR,
+          delay: Math.random() * 350,
+        });
+      }
+    }
+
+    // 5. Align targets to the existing this.bricks order so updateBrickPhysics
+    //    can zip them by index.
+    this.rebuildTargets = this.bricks.map((b) => targetById.get(b.id)!);
+    this.rebuildStartTime = Date.now();
+    this.scatterActive = true;
+    this.state = AppState.GENERATING;
+    this.onStateChange(this.state);
+  }
+
+  /**
+   * Spring every brick back to its resting `target` position (the model's
+   * original assembled layout). Idempotent: a no-op if not currently scattered.
+   */
+  public reassembleBricks(): void {
+    if (this.mode !== 'brick' || this.bricks.length === 0) return;
+    if (this.state === AppState.GENERATING) return;
+    if (!this.scatterActive) return;
+
+    this.rebuildTargets = this.bricks.map((b) => {
+      const h = Math.max(0, (b.targetY - CONFIG.FLOOR_Y) / 15);
+      return { x: b.targetX, y: b.targetY, z: b.targetZ, delay: h * 600 + Math.random() * 200 };
+    });
+    this.rebuildStartTime = Date.now();
+    this.scatterActive = false;
+    this.state = AppState.GENERATING;
+    this.onStateChange(this.state);
+  }
+
+  public toggleScatter(): void {
+    if (this.scatterActive) this.reassembleBricks();
+    else this.scatterAllBricks();
+  }
+
+  public get isScattered(): boolean {
+    return this.scatterActive;
   }
 
   private updateBrickPhysics() {
@@ -579,6 +718,70 @@ export class VoxelEngine {
     }
   }
 
+  // ----- Drop-test physics -----
+
+  private static readonly DROP_GRAVITY = 25;
+  private static readonly DROP_BRICK_HEIGHT = 1;
+
+  public dropUnsupportedBricks(ids: string[]): void {
+    if (this.mode !== 'brick' || ids.length === 0) return;
+    this.droppingBrickIds = new Set(ids);
+    this.dropPhysics.clear();
+    this.lastDropTime = performance.now();
+
+    for (const b of this.bricks) {
+      if (this.droppingBrickIds.has(b.id)) {
+        this.dropPhysics.set(b.id, {
+          vy: 0,
+          rvx: (Math.random() - 0.5) * 3,
+          rvz: (Math.random() - 0.5) * 3,
+          settled: false,
+        });
+      }
+    }
+  }
+
+  private updateDroppingBricks(): boolean {
+    if (this.droppingBrickIds.size === 0) return false;
+
+    const now = performance.now();
+    const dt = Math.min((now - this.lastDropTime) / 1000, 0.05);
+    this.lastDropTime = now;
+
+    let anyActive = false;
+    const floorY = CONFIG.FLOOR_Y + VoxelEngine.DROP_BRICK_HEIGHT / 2;
+
+    for (const b of this.bricks) {
+      const phys = this.dropPhysics.get(b.id);
+      if (!phys || phys.settled) continue;
+
+      phys.vy -= VoxelEngine.DROP_GRAVITY * dt;
+      b.y += phys.vy * dt;
+      b.rx += phys.rvx * dt;
+      b.rz += phys.rvz * dt;
+
+      if (b.y <= floorY) {
+        b.y = floorY;
+        phys.vy = 0;
+        phys.settled = true;
+        b.rx = 0;
+        b.rz = 0;
+      } else {
+        anyActive = true;
+      }
+    }
+
+    if (!anyActive) {
+      this.droppingBrickIds.clear();
+      this.dropPhysics.clear();
+    }
+    return true;
+  }
+
+  public get isDroppingBricks(): boolean {
+    return this.droppingBrickIds.size > 0;
+  }
+
   // ----- Brick-mode public hooks -----
 
   public setHighlightedBricks(ids: string[]) {
@@ -589,6 +792,29 @@ export class VoxelEngine {
   public clearHighlightedBricks() {
     this.highlightedBrickIds.clear();
     if (this.mode === 'brick') this.drawBricks();
+  }
+
+  /**
+   * Briefly brighten a brick to confirm a paint action visually.
+   * Restores the previous effective color (override or base) after durationMs.
+   */
+  public flashBrick(id: string, durationMs: number = 280): void {
+    const brick = this.bricks.find(b => b.id === id);
+    if (!brick) return;
+    const baselineOverride = this.brickColorOverrides.get(id);
+    const base = baselineOverride ?? brick.color;
+    const flash = base.clone();
+    flash.offsetHSL(0, 0, 0.28);
+    this.brickColorOverrides.set(id, flash);
+    if (this.mode === 'brick') this.drawBricks();
+    window.setTimeout(() => {
+      if (baselineOverride) {
+        this.brickColorOverrides.set(id, baselineOverride);
+      } else {
+        this.brickColorOverrides.delete(id);
+      }
+      if (this.mode === 'brick') this.drawBricks();
+    }, durationMs);
   }
 
   public setBrickColor(id: string, hex: number | string) {
@@ -604,6 +830,7 @@ export class VoxelEngine {
 
   public pickBrickAt(clientX: number, clientY: number): string | null {
     if (this.mode !== 'brick' || this.bricks.length === 0) return null;
+    this.controls.update();
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,

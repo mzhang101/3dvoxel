@@ -38,7 +38,9 @@ export class GeminiGenerator implements GeneratorAdapter {
 
     const userMessage = `${SYSTEM_INSTRUCTIONS}\n\n### Input:\n${prompt}`;
 
+    const startedAt = performance.now();
     const accumulated = await runWithGeminiModelFallback(this.modelCandidates, async (model) => {
+      if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const stream = await ai.models.generateContentStream({
         model,
         contents: userMessage,
@@ -61,10 +63,17 @@ export class GeminiGenerator implements GeneratorAdapter {
 
       let buf = '';
       let lastProgressAt = 0;
+      let firstChunkLogged = false;
       const PROGRESS_INTERVAL_MS = 50;
       for await (const chunk of stream) {
+        if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         const piece = (chunk as { text?: string }).text;
         if (!piece) continue;
+        if (!firstChunkLogged) {
+          firstChunkLogged = true;
+          const ttfs = performance.now() - startedAt;
+          console.info(`[gemini:${model}] TTFS=${ttfs.toFixed(0)}ms (first stream chunk)`);
+        }
         buf += piece;
         if (opts?.onProgress) {
           const now = Date.now();

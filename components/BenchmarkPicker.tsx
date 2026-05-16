@@ -7,6 +7,8 @@ interface BenchmarkPickerProps {
   open: boolean;
   onClose: () => void;
   onLoad: (entry: BenchmarkEntry, side: 'left' | 'right') => void;
+  /** When true, show a single "Load" button (passes 'left' to onLoad). */
+  singleMode?: boolean;
 }
 
 type LoadState =
@@ -15,7 +17,7 @@ type LoadState =
   | { kind: 'ready'; entries: BenchmarkEntry[] }
   | { kind: 'error'; message: string };
 
-export const BenchmarkPicker: React.FC<BenchmarkPickerProps> = ({ open, onClose, onLoad }) => {
+export const BenchmarkPicker: React.FC<BenchmarkPickerProps> = ({ open, onClose, onLoad, singleMode }) => {
   const t = useT();
   const [state, setState] = useState<LoadState>({ kind: 'idle' });
   const [query, setQuery] = useState('');
@@ -111,7 +113,7 @@ export const BenchmarkPicker: React.FC<BenchmarkPickerProps> = ({ open, onClose,
           )}
 
           {state.kind === 'ready' && filtered.map((entry) => (
-            <BenchmarkRow key={entry.promptIdx} entry={entry} onLoad={onLoad} />
+            <BenchmarkRow key={entry.promptIdx} entry={entry} onLoad={onLoad} singleMode={singleMode} />
           ))}
         </div>
       </div>
@@ -122,9 +124,10 @@ export const BenchmarkPicker: React.FC<BenchmarkPickerProps> = ({ open, onClose,
 interface BenchmarkRowProps {
   entry: BenchmarkEntry;
   onLoad: (entry: BenchmarkEntry, side: 'left' | 'right') => void;
+  singleMode?: boolean;
 }
 
-const BenchmarkRow: React.FC<BenchmarkRowProps> = ({ entry, onLoad }) => {
+const BenchmarkRow: React.FC<BenchmarkRowProps> = ({ entry, onLoad, singleMode }) => {
   const t = useT();
   const validity = entry.best.validity_score;
   const voxel = entry.best.voxel_score;
@@ -158,18 +161,29 @@ const BenchmarkRow: React.FC<BenchmarkRowProps> = ({ entry, onLoad }) => {
       </div>
 
       <div className="flex gap-2 mt-3">
-        <button
-          onClick={() => onLoad(entry, 'left')}
-          className="flex items-center gap-1 text-[11px] font-bold text-[#a1a43a] hover:text-[#828534] bg-[#f4f5d3] hover:bg-[#eaedb6] px-2.5 py-1.5 rounded-lg transition-colors"
-        >
-          <ChevronRight size={12} /> {t('benchmark.load.left')}
-        </button>
-        <button
-          onClick={() => onLoad(entry, 'right')}
-          className="flex items-center gap-1 text-[11px] font-bold text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors"
-        >
-          <ChevronRight size={12} /> {t('benchmark.load.right')}
-        </button>
+        {singleMode ? (
+          <button
+            onClick={() => onLoad(entry, 'left')}
+            className="flex items-center gap-1 text-[11px] font-bold text-[#a1a43a] hover:text-[#828534] bg-[#f4f5d3] hover:bg-[#eaedb6] px-2.5 py-1.5 rounded-lg transition-colors"
+          >
+            <ChevronRight size={12} /> {t('benchmark.load')}
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => onLoad(entry, 'left')}
+              className="flex items-center gap-1 text-[11px] font-bold text-[#a1a43a] hover:text-[#828534] bg-[#f4f5d3] hover:bg-[#eaedb6] px-2.5 py-1.5 rounded-lg transition-colors"
+            >
+              <ChevronRight size={12} /> {t('benchmark.load.left')}
+            </button>
+            <button
+              onClick={() => onLoad(entry, 'right')}
+              className="flex items-center gap-1 text-[11px] font-bold text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors"
+            >
+              <ChevronRight size={12} /> {t('benchmark.load.right')}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -11,6 +11,8 @@ import { JsonModal } from './components/JsonModal';
 import { PromptModal } from './components/PromptModal';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { ComparisonView } from './components/ComparisonView';
+import { BenchmarkPicker } from './components/BenchmarkPicker';
+import type { BenchmarkEntry } from './utils/benchmarkData';
 import { Generators } from './utils/voxelGenerators';
 import { parseImportedModel, voxelsToBricks, parseBrickPieces } from './utils/modelImport';
 import { getGenerator } from './services/generators';
@@ -33,6 +35,7 @@ import type { GenerationProgress } from './services/generators';
 import { ColorPanel } from './components/ColorPanel';
 import { suggestColors } from './services/llmColor';
 import type { BrickPiece } from './types';
+import { describeGenerationFailure } from './utils/generationErrors';
 const MODEL_PICKER_SCOPE_KEY = 'voxel_model_picker_google_only';
 
 const App: React.FC = () => {
@@ -76,9 +79,20 @@ const App: React.FC = () => {
   const [currentBricks, setCurrentBricks] = useState<BrickPiece[]>([]);
   const [currentPrompt, setCurrentPrompt] = useState<string>('');
   const [colorPanelOpen, setColorPanelOpen] = useState(false);
+  const [showBenchmark, setShowBenchmark] = useState(false);
   const [manualPaintMode, setManualPaintMode] = useState(false);
   const [manualPaintColor, setManualPaintColor] = useState('#74c69d');
   const [aiColorPending, setAiColorPending] = useState(false);
+  const [waitingSeconds, setWaitingSeconds] = useState(0);
+  const generationAbortRef = useRef<AbortController | null>(null);
+  const [scatterActive, setScatterActive] = useState(false);
+  // Refs that survive engine remounts (comparison-mode toggle recreates the engine).
+  const currentBricksRef = useRef<BrickPiece[]>([]);
+  useEffect(() => { currentBricksRef.current = currentBricks; }, [currentBricks]);
+  const currentPromptRef = useRef<string>('');
+  useEffect(() => { currentPromptRef.current = currentPrompt; }, [currentPrompt]);
+  const constraintReportRef = useRef<ConstraintReport | null>(null);
+  useEffect(() => { constraintReportRef.current = constraintReport; }, [constraintReport]);
   const t = useT();
 
   const modelSourceOptions = useMemo(
@@ -160,7 +174,8 @@ const App: React.FC = () => {
         t('app.alert.preset_default_name', { n: customPresets.length + 1 }),
       );
       if (!presetName) return;
-      const newPreset: SavedModel = { name: presetName, data: voxelData };
+      const brickText = engineRef.current.hasBricks() ? engineRef.current.getBrickText() : undefined;
+      const newPreset: SavedModel = { name: presetName, data: voxelData, brickText };
       const updated = [...customPresets, newPreset];
       setCustomPresets(updated);
       if (typeof window !== 'undefined') {
@@ -195,30 +210,45 @@ const App: React.FC = () => {
     engineRef.current.setControlsEnabled(false);
 
     const canvas = engineRef.current.getDomElement();
+    canvas.style.cursor = 'crosshair';
     let downX = 0;
     let downY = 0;
     let downAt = 0;
+    let paintGesture = false;
+
     const onDown = (ev: PointerEvent) => {
+      if (ev.button !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const inside = ev.clientX >= rect.left && ev.clientX <= rect.right
+                  && ev.clientY >= rect.top  && ev.clientY <= rect.bottom;
+      if (!inside) return;
+      paintGesture = true;
       downX = ev.clientX;
       downY = ev.clientY;
       downAt = performance.now();
     };
-    const onUp = (ev: PointerEvent) => {
-      if (!engineRef.current) return;
-      // Treat as a click only if the cursor barely moved and the gesture is short.
+    const finishPaint = (ev: PointerEvent) => {
+      if (!paintGesture || !engineRef.current) return;
+      paintGesture = false;
+      if (ev.type === 'pointerup' && ev.button !== 0) return;
       const moved = Math.abs(ev.clientX - downX) + Math.abs(ev.clientY - downY);
       if (moved > 8 || performance.now() - downAt > 800) return;
       const brickId = engineRef.current.pickBrickAt(ev.clientX, ev.clientY);
       if (brickId) {
         const intColor = parseInt(manualPaintColorRef.current.replace('#', ''), 16);
         engineRef.current.setBrickColor(brickId, intColor);
+        engineRef.current.flashBrick(brickId);
       }
     };
-    canvas.addEventListener('pointerdown', onDown, { capture: true });
-    canvas.addEventListener('pointerup', onUp, { capture: true });
+
+    window.addEventListener('pointerdown', onDown, { capture: true });
+    window.addEventListener('pointerup', finishPaint, { capture: true });
+    window.addEventListener('pointercancel', finishPaint, { capture: true });
     return () => {
-      canvas.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
-      canvas.removeEventListener('pointerup', onUp, { capture: true } as EventListenerOptions);
+      window.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
+      window.removeEventListener('pointerup', finishPaint, { capture: true } as EventListenerOptions);
+      window.removeEventListener('pointercancel', finishPaint, { capture: true } as EventListenerOptions);
+      canvas.style.cursor = '';
       if (engineRef.current) {
         engineRef.current.setControlsEnabled(true);
         if (wasAutoRotate) engineRef.current.setAutoRotate(true);
@@ -236,6 +266,34 @@ const App: React.FC = () => {
       setOverlapHighlightActive(true);
     }
   };
+
+  const handleStructuralTest = (brickIds: string[]) => {
+    engineRef.current?.dropUnsupportedBricks(brickIds);
+  };
+
+  const handleCancelGeneration = () => {
+    generationAbortRef.current?.abort();
+  };
+
+  const handleToggleScatter = () => {
+    if (!engineRef.current) return;
+    engineRef.current.toggleScatter();
+    setScatterActive(engineRef.current.isScattered);
+  };
+
+  // Fresh model → scatter state resets to assembled.
+  useEffect(() => { setScatterActive(false); }, [currentBricks]);
+
+  // Tick the "waiting for response" counter when generating but before the first stream chunk arrives.
+  useEffect(() => {
+    if (!isGenerating) {
+      setWaitingSeconds(0);
+      return;
+    }
+    if (genProgress && genProgress.chars > 0) return;
+    const interval = window.setInterval(() => setWaitingSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(interval);
+  }, [isGenerating, genProgress?.chars]);
   const [customPresets, setCustomPresets] = useState<SavedModel[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -246,6 +304,8 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    // Skip engine mount while in comparison mode — that view owns its own engines.
+    if (comparisonMode) return;
     if (!containerRef.current) return;
 
     // Initialize Engine
@@ -256,31 +316,34 @@ const App: React.FC = () => {
     );
 
     engineRef.current = engine;
+    engine.setAutoRotate(autoRotateRef.current);
 
-    // Initial Model Load — wrap voxels as 1×1 bricks so the LEGO renderer
-    // (with studs + per-brick coloring) applies to presets too.
-    const initialVoxels = Generators.ModernSofa();
-    const initialBricks = voxelsToBricks(initialVoxels);
-    engine.loadBrickModel(initialBricks);
-    setCurrentBricks(initialBricks);
-    setCurrentPrompt('Modern Sofa');
-    setConstraintReport(evaluateConstraints(initialVoxels));
-    setSourceInfo({ key: 'app.source.preset.modern_sofa' });
+    // Restore the last model if we have one (e.g. after exiting comparison mode).
+    const lastBricks = currentBricksRef.current;
+    if (lastBricks && lastBricks.length > 0) {
+      engine.loadBrickModel(lastBricks);
+      setVoxelCount(lastBricks.length);
+    } else {
+      // Fresh mount: Modern Sofa as 1×1 bricks for the LEGO renderer.
+      const initialVoxels = Generators.ModernSofa();
+      const initialBricks = voxelsToBricks(initialVoxels);
+      engine.loadBrickModel(initialBricks);
+      setCurrentBricks(initialBricks);
+      setCurrentPrompt('Modern Sofa');
+      setConstraintReport(evaluateConstraints(initialVoxels));
+      setSourceInfo({ key: 'app.source.preset.modern_sofa' });
+    }
 
     // Resize Listener
     const handleResize = () => engine.handleResize();
     window.addEventListener('resize', handleResize);
 
-    // Auto-hide welcome screen after interaction (optional, but sticking to simple toggle for now)
-    // For now, just auto-hide after 5s or user dismiss
-    const timer = setTimeout(() => setShowWelcome(false), 5000);
-
     return () => {
       window.removeEventListener('resize', handleResize);
-      clearTimeout(timer);
       engine.cleanup();
+      engineRef.current = null;
     };
-  }, []);
+  }, [comparisonMode]);
 
   const handleShowJson = () => {
     if (engineRef.current) {
@@ -323,9 +386,23 @@ const App: React.FC = () => {
                   sourceKey = 'app.source.preset.table';
                   sourceParams = undefined;
                   break;
-              default:
+              default: {
                   const custom = customPresets.find(p => p.name === presetName);
+                  // High-fidelity path: restore from saved brick-line if present.
+                  if (custom?.brickText) {
+                    const pieces = parseBrickPieces(custom.brickText);
+                    if (pieces.length > 0) {
+                      const expandedVoxels = parseImportedModel(custom.brickText);
+                      engineRef.current.generateBrickEffect(pieces);
+                      setCurrentBricks(pieces);
+                      setCurrentPrompt(presetName);
+                      setConstraintReport(evaluateConstraints(expandedVoxels, parseBrickData(custom.brickText)));
+                      setSourceInfo({ key: sourceKey, params: sourceParams });
+                      return;
+                    }
+                  }
                   data = custom ? custom.data : Generators.ModernSofa();
+              }
           }
           const bricks = voxelsToBricks(data);
           engineRef.current.generateBrickEffect(bricks);
@@ -354,7 +431,8 @@ const App: React.FC = () => {
         );
         if (!presetName) return;
 
-        const newPreset: SavedModel = { name: presetName, data: voxelData };
+        const brickText = engineRef.current.hasBricks() ? engineRef.current.getBrickText() : undefined;
+        const newPreset: SavedModel = { name: presetName, data: voxelData, brickText };
         const updatedPresets = [...customPresets, newPreset];
         setCustomPresets(updatedPresets);
         if (typeof window !== 'undefined') {
@@ -444,6 +522,9 @@ const App: React.FC = () => {
     setIsPromptModalOpen(false);
     setIsGenerating(true);
     setGenProgress(null);
+    setWaitingSeconds(0);
+    const controller = new AbortController();
+    generationAbortRef.current = controller;
 
     const start = performance.now();
 
@@ -451,6 +532,7 @@ const App: React.FC = () => {
         const gen = getGenerator(selectedModel);
         const voxelData = await gen.generate(prompt, runtimeKey, {
           onProgress: (p) => setGenProgress(p),
+          signal: controller.signal,
         });
         const elapsed = Math.round(performance.now() - start);
 
@@ -492,11 +574,65 @@ const App: React.FC = () => {
         appendRecord(record);
     } catch (err) {
         console.error("Generation failed", err);
-          const message = err instanceof Error ? err.message : 'Generation failed.';
+        const isAbort = err instanceof DOMException && err.name === 'AbortError';
+        if (!isAbort) {
+          const message = describeGenerationFailure(err, provider, t);
           alert(t('app.alert.generation_failed', { message }));
+        }
     } finally {
         setIsGenerating(false);
         setGenProgress(null);
+        setWaitingSeconds(0);
+        generationAbortRef.current = null;
+    }
+  };
+
+  const handleBenchmarkLoad = async (entry: BenchmarkEntry) => {
+    setShowBenchmark(false);
+    setIsGenerating(true);
+    setGenProgress(null);
+    const start = performance.now();
+    try {
+      const gen = getGenerator('geo3d-grpo');
+      const voxelData = await gen.generate(entry.prompt, '', {
+        onProgress: (p) => setGenProgress(p),
+      });
+      const elapsed = Math.round(performance.now() - start);
+      if (engineRef.current) {
+        const bricks = gen.lastBricks && gen.lastBricks.length > 0
+          ? gen.lastBricks
+          : voxelsToBricks(voxelData);
+        engineRef.current.generateBrickEffect(bricks);
+        setCurrentBricks(bricks);
+      }
+      setCurrentPrompt(entry.prompt);
+      const evaluation = evaluateAll(voxelData);
+      const brickText = gen.lastBrickText ?? undefined;
+      const bricks = brickText ? parseBrickData(brickText) : undefined;
+      const constraints = evaluateConstraints(
+        voxelData,
+        bricks && bricks.length > 0 ? bricks : undefined,
+      );
+      setConstraintReport(constraints);
+      setSourceInfo({ key: 'app.source.grpo', params: { prompt: entry.prompt } });
+      const record: GenerationRecord = {
+        id: crypto.randomUUID(),
+        prompt: entry.prompt,
+        model: 'geo3d-grpo',
+        timestamp: Date.now(),
+        generationTimeMs: elapsed,
+        voxelData,
+        evaluation,
+        constraintReport: constraints,
+        sourceBricks: brickText,
+      };
+      appendRecord(record);
+    } catch (err) {
+      console.error("Benchmark load failed", err);
+      alert(t('app.alert.generation_failed', { message: describeGenerationFailure(err, 'mock', t) }));
+    } finally {
+      setIsGenerating(false);
+      setGenProgress(null);
     }
   };
 
@@ -552,6 +688,14 @@ const App: React.FC = () => {
         genProgress={genProgress}
         onToggleColor={() => setColorPanelOpen((v) => !v)}
         hasBricks={currentBricks.length > 0}
+        onToggleBenchmark={() => setShowBenchmark(true)}
+        onStructuralTest={handleStructuralTest}
+        manualPaintMode={manualPaintMode}
+        manualPaintColor={manualPaintColor}
+        onCancelGeneration={isGenerating ? handleCancelGeneration : undefined}
+        waitingSeconds={waitingSeconds}
+        onToggleScatter={handleToggleScatter}
+        scatterActive={scatterActive}
       />
 
       <input
@@ -564,7 +708,7 @@ const App: React.FC = () => {
 
       {/* Modals & Screens */}
       
-      <WelcomeScreen visible={showWelcome} />
+      <WelcomeScreen visible={showWelcome} onStart={() => setShowWelcome(false)} />
 
       <JsonModal
         isOpen={isJsonModalOpen}
@@ -579,6 +723,13 @@ const App: React.FC = () => {
         provider={providerOf(selectedModel)}
         savedApiKey={savedApiKeys[providerOf(selectedModel)] ?? ''}
         onSubmit={handlePromptSubmit}
+      />
+
+      <BenchmarkPicker
+        open={showBenchmark}
+        onClose={() => setShowBenchmark(false)}
+        onLoad={(entry) => handleBenchmarkLoad(entry)}
+        singleMode
       />
 
       <ColorPanel

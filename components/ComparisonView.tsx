@@ -19,8 +19,10 @@ import { ConstraintPanel } from './ConstraintPanel';
 import { EvalHistory, appendRecord } from './EvalHistory';
 import { BenchmarkPicker } from './BenchmarkPicker';
 import type { BenchmarkEntry } from '../utils/benchmarkData';
-import { VoxelData, GenerationRecord, EvaluationScores, LLMJudgeScores } from '../types';
-import { Sparkles, Loader2, History, X, ArrowLeftRight, BarChart3, Link2, Unlink2, RotateCcw, ChevronDown, ChevronRight, Database } from 'lucide-react';
+import { VoxelData, GenerationRecord, EvaluationScores, LLMJudgeScores, BrickPiece } from '../types';
+import { ColorPanel } from './ColorPanel';
+import { suggestColors } from '../services/llmColor';
+import { Sparkles, Loader2, History, X, ArrowLeftRight, BarChart3, Link2, Unlink2, RotateCcw, ChevronDown, ChevronRight, Database, Palette } from 'lucide-react';
 import { useT } from '../i18n/LocaleContext';
 import { providerOf, type Provider } from '../services/generators/keys';
 
@@ -45,6 +47,7 @@ interface SlotState {
   generationTimeMs: number;
   isGenerating: boolean;
   progress: GenerationProgress | null;
+  bricks: BrickPiece[];
 }
 
 const INITIAL_SLOT: SlotState = {
@@ -56,6 +59,7 @@ const INITIAL_SLOT: SlotState = {
   generationTimeMs: 0,
   isGenerating: false,
   progress: null,
+  bricks: [],
 };
 
 export const ComparisonView: React.FC<ComparisonViewProps> = ({
@@ -90,6 +94,15 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const [isViewsLinked, setIsViewsLinked] = useState(false);
   const [openSourceMenu, setOpenSourceMenu] = useState<'left' | 'right' | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [colorSide, setColorSide] = useState<'left' | 'right' | null>(null);
+  const [manualPaintMode, setManualPaintMode] = useState(false);
+  const [manualPaintColor, setManualPaintColor] = useState('#74c69d');
+  const [aiColorPending, setAiColorPending] = useState(false);
+
+  const manualPaintColorRef = useRef(manualPaintColor);
+  useEffect(() => {
+    manualPaintColorRef.current = manualPaintColor;
+  }, [manualPaintColor]);
 
   useEffect(() => {
     const closeMenus = () => setOpenSourceMenu(null);
@@ -160,6 +173,66 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
     };
   }, [isViewsLinked]);
 
+  /** Click-to-paint: listen for pointerup on window so releases over the ColorPanel still complete the stroke. */
+  useEffect(() => {
+    const left = leftEngineRef.current;
+    const right = rightEngineRef.current;
+    if (!manualPaintMode || !colorSide) {
+      left?.setControlsEnabled(true);
+      right?.setControlsEnabled(true);
+      return;
+    }
+    const active = colorSide === 'left' ? left : right;
+    const inactive = colorSide === 'left' ? right : left;
+    if (!active) return;
+    active.setControlsEnabled(false);
+    inactive?.setControlsEnabled(true);
+
+    const canvas = active.getDomElement();
+    let downX = 0;
+    let downY = 0;
+    let downAt = 0;
+    let paintGesture = false;
+
+    const onDown = (ev: PointerEvent) => {
+      if (ev.button !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const inside = ev.clientX >= rect.left && ev.clientX <= rect.right
+                  && ev.clientY >= rect.top  && ev.clientY <= rect.bottom;
+      if (!inside) return;
+      paintGesture = true;
+      downX = ev.clientX;
+      downY = ev.clientY;
+      downAt = performance.now();
+    };
+    const finishPaint = (ev: PointerEvent) => {
+      if (!paintGesture) return;
+      paintGesture = false;
+      if (ev.type === 'pointerup' && ev.button !== 0) return;
+      const eng = colorSide === 'left' ? leftEngineRef.current : rightEngineRef.current;
+      if (!eng) return;
+      const moved = Math.abs(ev.clientX - downX) + Math.abs(ev.clientY - downY);
+      if (moved > 8 || performance.now() - downAt > 800) return;
+      const brickId = eng.pickBrickAt(ev.clientX, ev.clientY);
+      if (brickId) {
+        const intColor = parseInt(manualPaintColorRef.current.replace('#', ''), 16);
+        eng.setBrickColor(brickId, intColor);
+      }
+    };
+
+    window.addEventListener('pointerdown', onDown, { capture: true });
+    window.addEventListener('pointerup', finishPaint, { capture: true });
+    window.addEventListener('pointercancel', finishPaint, { capture: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
+      window.removeEventListener('pointerup', finishPaint, { capture: true } as EventListenerOptions);
+      window.removeEventListener('pointercancel', finishPaint, { capture: true } as EventListenerOptions);
+      left?.setControlsEnabled(true);
+      right?.setControlsEnabled(true);
+    };
+  }, [manualPaintMode, colorSide]);
+
   // ---- Generation ----
 
   const generateForSlot = useCallback(async (
@@ -192,14 +265,14 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
       }
       const constraints = evaluateConstraints(voxels, bricks);
 
+      const brickPieces = gen.lastBricks && gen.lastBricks.length > 0
+        ? gen.lastBricks
+        : voxelsToBricks(voxels);
       if (engineRef.current) {
-        const brickPieces = gen.lastBricks && gen.lastBricks.length > 0
-          ? gen.lastBricks
-          : voxelsToBricks(voxels);
         engineRef.current.generateBrickEffect(brickPieces);
       }
 
-      setSlot(prev => ({ ...prev, voxelData: voxels, evaluation, constraints, generationTimeMs: elapsed, isGenerating: false, progress: null }));
+      setSlot(prev => ({ ...prev, voxelData: voxels, evaluation, constraints, generationTimeMs: elapsed, isGenerating: false, progress: null, bricks: brickPieces }));
 
       // LLM judge (fire-and-forget, skip if no Gemini key)
       const geminiKey = savedApiKeys.gemini ?? '';
@@ -247,6 +320,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
       setRightSource(normalizedModel);
     }
 
+    const loadedBricks = voxelsToBricks(record.voxelData);
     if (engineRef.current) {
       engineRef.current.generateEffect(record.voxelData);
     }
@@ -259,6 +333,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
       constraints: record.constraintReport ?? evaluateConstraints(record.voxelData),
       generationTimeMs: record.generationTimeMs,
       isGenerating: false,
+      progress: null,
+      bricks: loadedBricks,
     });
   };
 
@@ -294,6 +370,51 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
       setRightSource('geo3d-grpo');
       generateForSlot('geo3d-grpo', rightEngineRef, setRightSlot, entry.prompt);
     }
+  };
+
+  const activeEngine = colorSide === 'left' ? leftEngineRef : rightEngineRef;
+  const activeBricks = colorSide === 'left' ? leftSlot.bricks : rightSlot.bricks;
+
+  const handleUniformColor = (hex: string) => {
+    if (!activeEngine.current) return;
+    const intColor = parseInt(hex.replace('#', ''), 16);
+    for (const b of activeBricks) {
+      activeEngine.current.setBrickColor(b.id, intColor);
+    }
+  };
+
+  const handleAiColor = async () => {
+    if (activeBricks.length === 0 || !colorSide) return;
+    const aiProvider: 'gemini' | 'deepseek' = 'gemini';
+    const key = savedApiKeys.gemini ?? '';
+    if (!key) {
+      alert(t('color.ai.no_key', { provider: 'gemini' }));
+      return;
+    }
+    setAiColorPending(true);
+    try {
+      const colors = await suggestColors(prompt, activeBricks, key, aiProvider);
+      if (activeEngine.current) {
+        for (const b of activeBricks) {
+          const hex = colors[b.id];
+          if (hex) {
+            activeEngine.current.setBrickColor(b.id, parseInt(hex.replace('#', ''), 16));
+          }
+        }
+      }
+    } catch (err) {
+      alert(t('color.ai.failed', { message: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setAiColorPending(false);
+    }
+  };
+
+  const handleResetColor = () => {
+    activeEngine.current?.clearBrickColorOverrides();
+  };
+
+  const handleSaveColoredPreset = () => {
+    alert('Color saved (comparison mode does not persist presets).');
   };
 
   const handleResetView = (slot: 'left' | 'right') => {
@@ -384,6 +505,32 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         >
           <History size={18} />
         </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setColorSide(prev => prev ? null : 'left')}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold transition-all ${colorSide ? 'bg-[#f4f5d3] text-[#8e9234]' : 'bg-slate-100 text-slate-500 hover:text-slate-700'}`}
+          >
+            <Palette size={16} />
+            {t('color.icon.tooltip')}
+          </button>
+          {colorSide && (
+            <div className="absolute right-0 top-full mt-2 bg-white/95 backdrop-blur-xl rounded-xl border border-slate-200 shadow-lg p-1.5 flex gap-1 z-20">
+              <button
+                onClick={() => setColorSide('left')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${colorSide === 'left' ? 'bg-[#f4f5d3] text-[#8e9234]' : 'text-slate-500 hover:bg-slate-100'}`}
+              >
+                {t('compare.left.label')}
+              </button>
+              <button
+                onClick={() => setColorSide('right')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${colorSide === 'right' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
+              >
+                {t('compare.right.label')}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Main area */}
@@ -472,6 +619,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                       title={`Left · ${getSelectionDisplay(leftSource).fullLabel}`}
                       onHighlightOverlaps={handleHighlightLeft}
                       highlightActive={leftHighlight}
+                      onStructuralTest={(ids) => leftEngineRef.current?.dropUnsupportedBricks(ids)}
                     />
                   )}
                   {rightSlot.constraints && (
@@ -481,6 +629,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                       title={`Right · ${getSelectionDisplay(rightSource).fullLabel}`}
                       onHighlightOverlaps={handleHighlightRight}
                       highlightActive={rightHighlight}
+                      onStructuralTest={(ids) => rightEngineRef.current?.dropUnsupportedBricks(ids)}
                     />
                   )}
                 </div>
@@ -494,6 +643,24 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
           </aside>
         )}
       </div>
+
+      {colorSide && (
+        <ColorPanel
+          open={!!colorSide}
+          onClose={() => { setColorSide(null); setManualPaintMode(false); }}
+          bricks={activeBricks}
+          modelPrompt={prompt}
+          onUniformColor={handleUniformColor}
+          onAiColor={handleAiColor}
+          manualMode={manualPaintMode}
+          onSetManualMode={setManualPaintMode}
+          manualColor={manualPaintColor}
+          onSetManualColor={setManualPaintColor}
+          onReset={handleResetColor}
+          onSave={handleSaveColoredPreset}
+          aiPending={aiColorPending}
+        />
+      )}
 
       {/* History sidebar */}
       <EvalHistory

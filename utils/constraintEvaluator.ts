@@ -275,11 +275,13 @@ export function checkBrickStability(bricks: BrickData[]): ConstraintResult {
     return emptyResult('structural_stability', 'Structural Stability');
   }
 
-  // Build a Set of every cell occupied by every brick, keyed by "<x>,<y>,<layer>".
-  const occupied = new Set<string>();
+  const brickCells = new Map<BrickData, Array<[number, number, number]>>();
+  const cellToBrick = new Map<string, BrickData>();
   for (const b of bricks) {
-    for (const [cx, cy, cl] of expandBrickCells(b)) {
-      occupied.add(key3(cx, cy, cl));
+    const cells = expandBrickCells(b);
+    brickCells.set(b, cells);
+    for (const [cx, cy, cl] of cells) {
+      cellToBrick.set(key3(cx, cy, cl), b);
     }
   }
 
@@ -288,7 +290,28 @@ export function checkBrickStability(bricks: BrickData[]): ConstraintResult {
     if (b.layer < minLayer) minLayer = b.layer;
   }
 
-  let supported = 0;
+  const supportedBricks = new Set<BrickData>();
+  const queue: BrickData[] = [];
+  for (const b of bricks) {
+    if (b.layer === minLayer) {
+      supportedBricks.add(b);
+      queue.push(b);
+    }
+  }
+
+  while (queue.length > 0) {
+    const brick = queue.shift()!;
+    for (const [cx, cy, cl] of brickCells.get(brick)!) {
+      for (const adj of [key3(cx, cy, cl - 1), key3(cx, cy, cl + 1)]) {
+        const neighbor = cellToBrick.get(adj);
+        if (neighbor && !supportedBricks.has(neighbor)) {
+          supportedBricks.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+  }
+
   let aboveGround = 0;
   const violations: ViolationDetail[] = [];
   const unsupportedIds: string[] = [];
@@ -296,12 +319,7 @@ export function checkBrickStability(bricks: BrickData[]): ConstraintResult {
   for (const b of bricks) {
     if (b.layer === minLayer) continue;
     aboveGround += 1;
-    const hasSupport = expandBrickCells(b).some(([cx, cy, cl]) =>
-      occupied.has(key3(cx, cy, cl - 1)),
-    );
-    if (hasSupport) {
-      supported += 1;
-    } else {
+    if (!supportedBricks.has(b)) {
       violations.push({
         key: 'constraint.violation.unsupported_brick',
         params: { size: `${b.sizeX}x${b.sizeY}`, x: b.x, y: b.y, layer: b.layer },
@@ -324,6 +342,7 @@ export function checkBrickStability(bricks: BrickData[]): ConstraintResult {
     };
   }
 
+  const supported = aboveGround - violations.length;
   const score = supported / aboveGround;
   const passed = score >= 0.95;
   return {
@@ -348,19 +367,38 @@ export function checkStructuralStability(voxels: VoxelData[]): ConstraintResult 
   }
 
   const minY = voxels.reduce((m, v) => (v.y < m ? v.y : m), Infinity);
-  const occupied = new Set<string>();
-  for (const v of voxels) occupied.add(key3(v.x, v.y, v.z));
+  const occupied = new Map<string, VoxelData>();
+  for (const v of voxels) occupied.set(key3(v.x, v.y, v.z), v);
+
+  const supportedKeys = new Set<string>();
+  const queue: VoxelData[] = [];
+  for (const v of voxels) {
+    if (v.y === minY) {
+      supportedKeys.add(key3(v.x, v.y, v.z));
+      queue.push(v);
+    }
+  }
+
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const adj of [key3(cur.x, cur.y - 1, cur.z), key3(cur.x, cur.y + 1, cur.z)]) {
+      if (!supportedKeys.has(adj)) {
+        const neighbor = occupied.get(adj);
+        if (neighbor) {
+          supportedKeys.add(adj);
+          queue.push(neighbor);
+        }
+      }
+    }
+  }
 
   const violations: ViolationDetail[] = [];
   let aboveGround = 0;
-  let supported = 0;
 
   for (const v of voxels) {
     if (v.y === minY) continue;
     aboveGround += 1;
-    if (occupied.has(key3(v.x, v.y - 1, v.z))) {
-      supported += 1;
-    } else {
+    if (!supportedKeys.has(key3(v.x, v.y, v.z))) {
       violations.push({
         key: 'constraint.violation.floating_voxel',
         params: { x: v.x, y: v.y, z: v.z },
@@ -382,6 +420,7 @@ export function checkStructuralStability(voxels: VoxelData[]): ConstraintResult 
     };
   }
 
+  const supported = aboveGround - violations.length;
   const score = supported / aboveGround;
   return {
     nameKey: 'constraint.structural_stability.name',

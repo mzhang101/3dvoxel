@@ -90,6 +90,8 @@ export interface RebuildTarget {
 export interface SavedModel {
   name: string;
   data: VoxelData[];
+  /** Brick-line text (if the model was saved while in brick mode). Preferred for high-fidelity reload. */
+  brickText?: string;
   baseModel?: string;
 }
 

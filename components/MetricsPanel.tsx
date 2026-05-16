@@ -129,10 +129,11 @@ function RadarChart({ left, right }: { left: number[]; right: number[] }) {
 
 export const MetricsPanel: React.FC<MetricsPanelProps> = ({ left, right }) => {
   const t = useT();
+  const [showGuide, setShowGuide] = React.useState(false);
+
   if (!left && !right) return null;
 
   const hasBoth = !!left && !!right;
-  const [showGuide, setShowGuide] = React.useState(false);
 
   type Row = {
     id: string;

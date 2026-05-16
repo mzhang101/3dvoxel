@@ -12,6 +12,8 @@ interface ConstraintPanelProps {
   onHighlightOverlaps?: (brickIds: string[]) => void;
   /** Whether overlap highlighting is currently active (for button styling). */
   highlightActive?: boolean;
+  /** Trigger a drop-test: let unsupported bricks fall with gravity. */
+  onStructuralTest?: (brickIds: string[]) => void;
 }
 
 const STEP_MS = 350;
@@ -34,15 +36,30 @@ function StatusIcon({ result }: { result: ConstraintResult }) {
   return <XCircle size={16} className="text-rose-500 shrink-0" />;
 }
 
+interface StructuralDropCta {
+  onClick: () => void;
+}
+
 interface RowProps {
   result: ConstraintResult;
   state: 'pending' | 'checking' | 'revealed';
   compact?: boolean;
+  /** Wider two-line layout: title + big score, then detail + action buttons (structural stability). */
+  structuralTwoLineLayout?: boolean;
   onHighlight?: () => void;
   highlightActive?: boolean;
+  structuralDropCta?: StructuralDropCta;
 }
 
-const ConstraintRow: React.FC<RowProps> = ({ result, state, compact, onHighlight, highlightActive }) => {
+const ConstraintRow: React.FC<RowProps> = ({
+  result,
+  state,
+  compact,
+  structuralTwoLineLayout,
+  onHighlight,
+  highlightActive,
+  structuralDropCta,
+}) => {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
   const hasViolations = result.violations.length > 0;
@@ -66,12 +83,97 @@ const ConstraintRow: React.FC<RowProps> = ({ result, state, compact, onHighlight
       <div className="flex items-center gap-2 py-2 px-1 border-b border-slate-100 last:border-0 animate-in fade-in slide-in-from-left-2 duration-200">
         <Loader2 size={16} className="text-indigo-500 animate-spin shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm font-bold text-slate-700">{name}</span>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className={`font-bold text-slate-700 ${structuralTwoLineLayout ? 'text-base' : 'text-sm'}`}>{name}</span>
             <span className="text-[11px] text-indigo-500">{t('constraint.panel.checking')}</span>
           </div>
         </div>
-        <span className="font-mono text-sm text-slate-400">…</span>
+        <span className={`font-mono text-slate-400 shrink-0 ${structuralTwoLineLayout ? 'text-lg font-black' : 'text-sm'}`}>…</span>
+      </div>
+    );
+  }
+
+  /** Structural stability: line 1 = title + big score; line 2 = full detail + action buttons without clipping. */
+  if (structuralTwoLineLayout) {
+    const hasActions = !!(onHighlight || structuralDropCta);
+
+    const highlightBtn = onHighlight ? (
+      <button
+        type="button"
+        onClick={onHighlight}
+        title={highlightActive ? t('constraint.panel.unhighlight') : t('constraint.panel.highlight')}
+        aria-label={highlightActive ? t('constraint.panel.unhighlight') : t('constraint.panel.highlight')}
+        className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] font-black uppercase tracking-wide transition-all shrink-0 ${
+          highlightActive
+            ? 'border-rose-300 bg-rose-50 text-rose-600 hover:bg-rose-100'
+            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-800'
+        }`}
+      >
+        {highlightActive ? <EyeOff size={14} className="shrink-0" /> : <Eye size={14} className="shrink-0" />}
+        <span className="whitespace-nowrap">{highlightActive ? t('constraint.panel.unhighlight_short') : t('constraint.panel.highlight_short')}</span>
+      </button>
+    ) : null;
+
+    const dropBtn = structuralDropCta ? (
+      <button
+        type="button"
+        onClick={structuralDropCta.onClick}
+        title={t('constraint.structural_test.tooltip')}
+        aria-label={t('constraint.structural_test')}
+        className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-gradient-to-br from-amber-50 to-amber-100/90 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-amber-900 shadow-sm transition-all hover:border-amber-400 hover:from-amber-100 hover:to-amber-50 active:translate-y-[0.5px] shrink-0 whitespace-nowrap"
+      >
+        {t('constraint.structural_test')}
+      </button>
+    ) : null;
+
+    return (
+      <div className="border-b border-slate-100 last:border-0 animate-in fade-in slide-in-from-left-2 duration-300">
+        <div className="flex gap-2 py-2 px-1">
+          <div className="shrink-0 pt-1">
+            <StatusIcon result={result} />
+          </div>
+          <div className="flex-1 min-w-0 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => hasViolations && setExpanded((v) => !v)}
+              className={`flex w-full flex-wrap items-start justify-between gap-x-3 gap-y-1 text-left rounded-lg -mx-0.5 px-0.5 py-0.5 ${
+                hasViolations ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'
+              }`}
+              aria-expanded={hasViolations ? expanded : undefined}
+              aria-disabled={!hasViolations}
+            >
+              <span className="text-base font-black text-slate-800 tracking-tight leading-snug">{name}</span>
+              <div className="flex items-center gap-2 shrink-0 ml-auto">
+                <span className={`font-mono text-2xl font-black tabular-nums tracking-tight ${scoreColor(result.score)}`}>
+                  {result.score.toFixed(2)}
+                </span>
+                {hasViolations && (
+                  <ChevronDown size={14} className={`text-slate-400 transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`} />
+                )}
+              </div>
+            </button>
+
+            <div className="flex flex-wrap gap-x-3 gap-y-2 items-start">
+              <p className={`text-[12px] leading-snug text-slate-600 min-w-0 break-words ${hasActions ? 'flex-[1_1_10rem]' : 'w-full'}`}>{detail}</p>
+              {hasActions && (
+                <div className="flex flex-wrap gap-2 shrink-0 items-stretch justify-end ml-auto max-w-full">
+                  {highlightBtn}
+                  {dropBtn}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {expanded && hasViolations && (
+          <div className="pb-2 pr-1 pl-8">
+            <ul className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 space-y-1 text-[11px] font-mono text-slate-600">
+              {result.violations.map((v, i) => (
+                <li key={i}>{t(v.key, v.params)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }
@@ -82,22 +184,22 @@ const ConstraintRow: React.FC<RowProps> = ({ result, state, compact, onHighlight
         <button
           type="button"
           onClick={() => hasViolations && setExpanded((v) => !v)}
-          className={`flex-1 flex items-center gap-2 text-left ${hasViolations ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'}`}
+          className={`flex-1 flex items-center gap-2 text-left min-w-0 ${hasViolations ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'}`}
         >
           <StatusIcon result={result} />
           <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2">
+            <div className="flex items-baseline gap-2 flex-wrap">
               <span className="text-sm font-bold text-slate-700">{name}</span>
               {!compact && (
-                <span className="text-[11px] text-slate-500 truncate">{detail}</span>
+                <span className="text-[11px] text-slate-500 break-words">{detail}</span>
               )}
             </div>
           </div>
-          <span className={`font-mono text-sm font-bold ${scoreColor(result.score)}`}>
+          <span className={`font-mono text-sm font-bold shrink-0 tabular-nums ${scoreColor(result.score)}`}>
             {result.score.toFixed(2)}
           </span>
           {hasViolations && (
-            <ChevronDown size={12} className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            <ChevronDown size={12} className={`text-slate-400 transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`} />
           )}
         </button>
         {onHighlight && (
@@ -116,6 +218,20 @@ const ConstraintRow: React.FC<RowProps> = ({ result, state, compact, onHighlight
           </button>
         )}
       </div>
+
+      {structuralDropCta && !compact && (
+        <div className="pb-2 pl-7 pr-1">
+          <button
+            type="button"
+            onClick={structuralDropCta.onClick}
+            title={t('constraint.structural_test.tooltip')}
+            aria-label={t('constraint.structural_test')}
+            className="w-full rounded-lg border border-amber-300 bg-gradient-to-br from-amber-50 to-amber-100/90 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-900 shadow-sm transition-all hover:border-amber-400 hover:from-amber-100 hover:to-amber-50 active:translate-y-[0.5px]"
+          >
+            {t('constraint.structural_test')}
+          </button>
+        </div>
+      )}
 
       {expanded && hasViolations && (
         <div className="pb-2 pl-7 pr-1">
@@ -144,6 +260,7 @@ export const ConstraintPanel: React.FC<ConstraintPanelProps> = ({
   title,
   onHighlightOverlaps,
   highlightActive = false,
+  onStructuralTest,
 }) => {
   const t = useT();
   const [phase, setPhase] = useState<Phase>('idle');
@@ -183,7 +300,6 @@ export const ConstraintPanel: React.FC<ConstraintPanelProps> = ({
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report, runId]);
 
   if (loading) {
@@ -287,14 +403,28 @@ export const ConstraintPanel: React.FC<ConstraintPanelProps> = ({
             state === 'revealed' &&
             !!c.overlappingBrickIds &&
             c.overlappingBrickIds.length > 0;
+          const showStructuralDropCta =
+            c.nameKey === 'constraint.structural_stability.name' &&
+            state === 'revealed' &&
+            hasBrickData &&
+            !!onStructuralTest;
+          const overlappingStruct = c.overlappingBrickIds?.length ?? 0;
+          const structuralDropCta: StructuralDropCta | undefined =
+            showStructuralDropCta && overlappingStruct > 0
+              ? { onClick: () => onStructuralTest!(c.overlappingBrickIds!) }
+              : undefined;
+          const structuralTwoLineLayout =
+            c.nameKey === 'constraint.structural_stability.name' && !compact && state === 'revealed';
           return (
             <ConstraintRow
               key={c.nameKey + i}
               result={c}
               state={state}
               compact={compact}
+              structuralTwoLineLayout={structuralTwoLineLayout}
               onHighlight={canHighlight ? () => onHighlightOverlaps!(c.overlappingBrickIds!) : undefined}
               highlightActive={canHighlight && highlightActive}
+              structuralDropCta={structuralDropCta}
             />
           );
         })}

@@ -8,7 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { AppState, SavedModel } from '../types';
 import type { GeneratorSourceOption } from '../services/generators/catalog';
 import { getSelectionDisplay } from '../services/generators/catalog';
-import { Box, Code2, Play, Pause, Info, Loader2, Sparkles, Layers, Upload, Save, Cpu, ArrowLeftRight, Shield, Palette } from 'lucide-react';
+import { Box, Code2, Play, Pause, Info, Loader2, Sparkles, Layers, Upload, Save, Cpu, ArrowLeftRight, Shield, Palette, Database, X, Shuffle } from 'lucide-react';
 import { ConstraintPanel } from './ConstraintPanel';
 import type { ConstraintReport } from '../utils/constraintEvaluator';
 import { useT } from '../i18n/LocaleContext';
@@ -48,6 +48,14 @@ interface UIOverlayProps {
   genProgress?: GenerationProgress | null;
   onToggleColor?: () => void;
   hasBricks?: boolean;
+  onToggleBenchmark?: () => void;
+  onStructuralTest?: (brickIds: string[]) => void;
+  manualPaintMode?: boolean;
+  manualPaintColor?: string;
+  onCancelGeneration?: () => void;
+  waitingSeconds?: number;
+  onToggleScatter?: () => void;
+  scatterActive?: boolean;
 }
 
 const LOADING_MESSAGE_KEYS = [
@@ -84,6 +92,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   genProgress,
   onToggleColor,
   hasBricks,
+  onToggleBenchmark,
+  onStructuralTest,
+  manualPaintMode,
+  manualPaintColor,
+  onCancelGeneration,
+  waitingSeconds,
+  onToggleScatter,
+  scatterActive,
 }) => {
   const t = useT();
   const isStable = appState === AppState.STABLE;
@@ -93,7 +109,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [showPresets, setShowPresets] = useState(false);
   const [showModels, setShowModels] = useState(false);
     const [isGeminiExpanded, setIsGeminiExpanded] = useState(false);
-  const [showConstraints, setShowConstraints] = useState(true);
+  const [showConstraints, setShowConstraints] = useState(false);
 
   useEffect(() => {
     if (isGenerating) {
@@ -189,11 +205,26 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                 label={t('ui.icon.constraints')}
               />
             )}
+            {onToggleBenchmark && (
+              <IconButton
+                onClick={onToggleBenchmark}
+                icon={<Database size={18} strokeWidth={2.5} />}
+                label={t('ui.icon.benchmark')}
+              />
+            )}
             {hasBricks && onToggleColor && (
               <IconButton
                 onClick={onToggleColor}
                 icon={<Palette size={18} strokeWidth={2.5} />}
                 label={t('color.icon.tooltip')}
+              />
+            )}
+            {hasBricks && onToggleScatter && (
+              <IconButton
+                onClick={onToggleScatter}
+                active={scatterActive}
+                icon={<Shuffle size={18} strokeWidth={2.5} />}
+                label={scatterActive ? t('ui.icon.reassemble') : t('ui.icon.scatter')}
               />
             )}
         </div>
@@ -206,14 +237,41 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             report={constraintReport}
             onHighlightOverlaps={onHighlightOverlaps}
             highlightActive={highlightActive}
+            onStructuralTest={onStructuralTest}
           />
+        </div>
+      )}
+
+      {/* --- Paint indicator badge --- */}
+      {manualPaintMode && (
+        <div className="absolute top-24 left-6 z-30 pointer-events-none animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-2xl border border-rose-200 bg-rose-50/90 shadow-md backdrop-blur-md">
+            <span
+              className="w-4 h-4 rounded-md border border-white/80 shadow-inner"
+              style={{ backgroundColor: manualPaintColor }}
+            />
+            <span className="text-xs font-black uppercase tracking-wider text-rose-600">
+              {t('paint.indicator.active', { color: (manualPaintColor ?? '').toUpperCase() })}
+            </span>
+          </div>
         </div>
       )}
 
       {/* --- Loading Indicator --- */}
       {isGenerating && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-in fade-in zoom-in duration-300">
-              <div className="bg-white/90 backdrop-blur-xl border border-white/40 px-8 py-6 rounded-3xl shadow-2xl flex flex-col items-center gap-4 min-w-[280px]">
+              <div className="bg-white/90 backdrop-blur-xl border border-white/40 px-8 py-6 rounded-3xl shadow-2xl flex flex-col items-center gap-4 min-w-[280px] relative">
+                  {onCancelGeneration && (
+                    <button
+                      type="button"
+                      onClick={onCancelGeneration}
+                      title={t('ui.loading.cancel')}
+                      aria-label={t('ui.loading.cancel')}
+                      className="absolute top-3 right-3 p-1 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors pointer-events-auto"
+                    >
+                      <X size={16} strokeWidth={2.5} />
+                    </button>
+                  )}
                   <div className="relative">
                       <div className="absolute inset-0 bg-[#d4d76a] rounded-full animate-ping opacity-30"></div>
                       <Loader2 size={40} className="text-[#a1a43a] animate-spin" />
@@ -225,7 +283,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                       </p>
                   </div>
 
-                  {genProgress && (
+                  {/* Pre-stream waiting message (before first chunk arrives) */}
+                  {(!genProgress || genProgress.chars === 0) && (waitingSeconds ?? 0) > 0 && (
+                    <p className="text-[11px] font-semibold tracking-wider text-amber-600 text-center">
+                      {t('ui.loading.waiting', { seconds: waitingSeconds ?? 0 })}
+                    </p>
+                  )}
+
+                  {genProgress && genProgress.chars > 0 && (
                     <div className="w-full mt-2 space-y-2">
                       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 text-center">
                         {t('ui.loading.progress', { lines: genProgress.lines, chars: genProgress.chars })}
