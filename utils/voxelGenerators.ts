@@ -64,7 +64,7 @@ export const Generators = {
         // Chest
         for (let x = EX - 2; x <= EX + 2; x++) for (let y = EY + 4; y <= EY + 9; y++) setBlock(map, x, y, EZ + 3, COLORS.LIGHT);
         // Wings (Rough approximation)
-        for (let x of [-4, -3, 3, 4]) for (let y = EY + 4; y <= EY + 10; y++) for (let z = EZ - 2; z <= EZ + 3; z++) setBlock(map, x, y, z, COLORS.DARK);
+        for (const x of [-4, -3, 3, 4]) for (let y = EY + 4; y <= EY + 10; y++) for (let z = EZ - 2; z <= EZ + 3; z++) setBlock(map, x, y, z, COLORS.DARK);
         // Tail
         for (let x = EX - 2; x <= EX + 2; x++) for (let y = EY; y <= EY + 4; y++) for (let z = EZ - 5; z <= EZ - 3; z++) setBlock(map, x, y, z, COLORS.WHITE);
         // Head
@@ -160,7 +160,7 @@ export const Generators = {
 
     Twins: (): VoxelData[] => {
         const map = new Map<string, VoxelData>();
-        function buildMiniEagle(offsetX: number, offsetZ: number, mirror: boolean) {
+        function buildMiniEagle(offsetX: number, offsetZ: number, _mirror: boolean) {
             // Branch
             for (let x = -5; x < 5; x++) {
                 const y = Math.sin(x * 0.4) * 0.5;

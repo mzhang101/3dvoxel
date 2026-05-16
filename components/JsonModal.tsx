@@ -6,28 +6,37 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, FileJson, Copy, Check } from 'lucide-react';
+import { useT } from '../i18n/LocaleContext';
+
+type Tab = 'bricks' | 'voxels';
 
 interface JsonModalProps {
   isOpen: boolean;
   onClose: () => void;
-  data?: string;
+  data?: string;        // voxel JSON
+  brickText?: string;   // brick-line text (preferred when available)
 }
 
-export const JsonModal: React.FC<JsonModalProps> = ({ isOpen, onClose, data = '' }) => {
+export const JsonModal: React.FC<JsonModalProps> = ({ isOpen, onClose, data = '', brickText }) => {
+  const t = useT();
   const [isCopied, setIsCopied] = useState(false);
+  const [tab, setTab] = useState<Tab>(brickText ? 'bricks' : 'voxels');
 
   useEffect(() => {
       if (isOpen) {
           setIsCopied(false);
+          setTab(brickText ? 'bricks' : 'voxels');
       }
-  }, [isOpen]);
+  }, [isOpen, brickText]);
 
   if (!isOpen) return null;
 
+  const currentContent = tab === 'bricks' ? (brickText ?? '') : data;
+
   const handleCopy = async () => {
-      if (!data) return;
+      if (!currentContent) return;
       try {
-          await navigator.clipboard.writeText(data);
+          await navigator.clipboard.writeText(currentContent);
           setIsCopied(true);
           setTimeout(() => setIsCopied(false), 2000);
       } catch (err) {
@@ -46,9 +55,9 @@ export const JsonModal: React.FC<JsonModalProps> = ({ isOpen, onClose, data = ''
             </div>
             <div>
                 <h2 className="text-xl font-bold text-slate-800 tracking-tight">
-                    Model Blueprint
+                    {t('json.title')}
                 </h2>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">JSON Format</p>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{t('json.subtitle')}</p>
             </div>
           </div>
           <button 
@@ -59,20 +68,38 @@ export const JsonModal: React.FC<JsonModalProps> = ({ isOpen, onClose, data = ''
           </button>
         </div>
 
+        {/* Tab selector (only when brick text is available) */}
+        {brickText && (
+          <div className="px-6 pt-3 pb-2 flex gap-2">
+            <button
+              onClick={() => setTab('bricks')}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${tab === 'bricks' ? 'bg-[#d4d76a] text-slate-900 shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+            >
+              {t('json.brick_lines')}
+            </button>
+            <button
+              onClick={() => setTab('voxels')}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${tab === 'voxels' ? 'bg-[#d4d76a] text-slate-900 shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+            >
+              {t('json.voxel_json')}
+            </button>
+          </div>
+        )}
+
         <div className="flex-1 p-6 overflow-hidden bg-slate-50/50 flex flex-col relative">
-          <textarea 
+          <textarea
             readOnly
-            value={data}
+            value={currentContent}
             className="w-full h-full resize-none bg-white border border-slate-200 rounded-2xl p-4 font-mono text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#d4d76a]/30 focus:border-[#d4d76a] transition-all"
           />
         </div>
 
         <div className="px-6 py-5 border-t border-slate-100 flex justify-end bg-white gap-3">
-            <button 
+            <button
                 onClick={onClose}
                 className="px-6 py-2.5 text-slate-500 font-semibold hover:bg-slate-50 rounded-full transition-colors"
             >
-                Close
+                {t('json.close')}
             </button>
             <button
                 onClick={handleCopy}
@@ -84,7 +111,7 @@ export const JsonModal: React.FC<JsonModalProps> = ({ isOpen, onClose, data = ''
                 `}
             >
                 {isCopied ? <Check size={16} strokeWidth={3} /> : <Copy size={16} strokeWidth={2} />}
-                {isCopied ? 'Copied!' : 'Copy JSON'}
+                {isCopied ? t('json.copied') : t('json.copy')}
             </button>
         </div>
 

@@ -6,15 +6,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sparkles, X, Loader2 } from 'lucide-react';
+import { useT } from '../i18n/LocaleContext';
+import type { Provider } from '../services/generators/keys';
 
 interface PromptModalProps {
   isOpen: boolean;
   onClose: () => void;
   savedApiKey?: string;
+  provider?: Provider;
   onSubmit: (prompt: string, apiKey?: string) => Promise<void>;
 }
 
-export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, savedApiKey = '', onSubmit }) => {
+export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, savedApiKey = '', provider = 'gemini', onSubmit }) => {
+  const t = useT();
   const [prompt, setPrompt] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +62,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, saved
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-2">
           <h2 className="text-2xl font-bold text-slate-800 tracking-tight">
-            What should we build?
+            {t('prompt.title')}
           </h2>
           <button 
             onClick={!isLoading ? onClose : undefined}
@@ -72,19 +76,27 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, saved
         {/* Body */}
         <div className="p-6">
           <form onSubmit={handleSubmit}>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Paste Gemini API key (stored locally in this browser)"
-              disabled={isLoading}
-              className="w-full bg-slate-50/50 border border-slate-200 rounded-2xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#d4d76a]/30 focus:border-[#d4d76a] transition-all placeholder:text-slate-400 mb-4"
-            />
+            {provider !== 'mock' && (
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={t(
+                  provider === 'deepseek'
+                    ? 'prompt.api_key.deepseek.placeholder'
+                    : provider === 'gemini'
+                      ? 'prompt.api_key.gemini.placeholder'
+                      : 'prompt.api_key.generic.placeholder'
+                )}
+                disabled={isLoading}
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-2xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#d4d76a]/30 focus:border-[#d4d76a] transition-all placeholder:text-slate-400 mb-4"
+              />
+            )}
 
-            <textarea 
+            <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., A futuristic spaceship, a cute cat, a medieval castle..."
+              placeholder={t('prompt.placeholder')}
               disabled={isLoading}
               className="w-full h-32 resize-none bg-slate-50/50 border border-slate-200 rounded-2xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#d4d76a]/30 focus:border-[#d4d76a] transition-all placeholder:text-slate-400 mb-6 text-lg"
               autoFocus
@@ -110,12 +122,12 @@ export const PromptModal: React.FC<PromptModalProps> = ({ isOpen, onClose, saved
                 {isLoading ? (
                   <>
                     <Loader2 size={18} className="animate-spin" />
-                    Generating...
+                    {t('prompt.generating')}
                   </>
                 ) : (
                   <>
                     <Sparkles size={18} />
-                    Generate
+                    {t('prompt.submit')}
                   </>
                 )}
               </button>
